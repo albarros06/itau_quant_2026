@@ -1,0 +1,40 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.ipynb_checkpoints/
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+.python-version
+
+# --- Secrets & configuration ---
+# Never commit API keys (LLM providers, market-data providers) or local overrides.
+.env
+.env.*
+!.env.example
+secrets.toml
+.streamlit/secrets.toml
+
+# --- Claude Code local settings & temp files ---
+.claude/settings.local.json
+.claude/*.tmp.*
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
