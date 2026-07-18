@@ -1,0 +1,25 @@
+# Provider registry (Constitution Principle I). Each entry maps a provider_id to the
+# connector module of the same name under energy_research/ingestion/providers/.
+# Credentials are referenced by environment-variable NAME only — never a secret value.
+
+market_data:
+  - provider_id: sample_provider
+    categories: [spot, forward_curve, hydrology, interest_rate, fx]
+    options: {} # sample data is generated locally; clearly labeled synthetic
+  # Example of a swappable second provider (see secondary_market_provider):
+  # - provider_id: secondary_market_provider
+  #   categories: [spot, forward_curve, hydrology, interest_rate, fx]
+  #   options:
+  #     base_dir: data/dropzone/market
+  #     provenance: real
+  #     api_key_env: SECONDARY_MARKET_API_KEY
+
+qualitative_context:
+  - provider_id: sample_provider
+    categories: [news, hydrology_outlook, macro_regime]
+    options: {}
+  # - provider_id: qualitative_context_provider
+  #   categories: [news, hydrology_outlook, macro_regime]
+  #   options:
+  #     base_dir: data/dropzone/context
+  #     provenance: real

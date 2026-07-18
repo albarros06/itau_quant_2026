@@ -1,0 +1,115 @@
+[project]
+name = "energy-research"
+version = "0.1.0"
+description = "Automated trading-idea research pipeline for Brazilian energy markets and derivatives"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "pyyaml>=6.0",
+    "pandas>=2.2",
+    "pyarrow>=16.0",
+    "scipy>=1.13",
+    "statsmodels>=0.14",
+    "anthropic>=0.40",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "import-linter>=2.0",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+research-pipeline = "energy_research.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/energy_research"]
+
+# ---------------------------------------------------------------------------
+# Architecture boundary contracts (contracts/architecture-boundaries.md).
+# Verified by `lint-imports`, run from tests/contract/test_architecture_boundaries.py
+# so a boundary violation is a test failure, not a review-time observation.
+# ---------------------------------------------------------------------------
+[tool.importlinter]
+root_package = "energy_research"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Layered architecture (config -> common -> ingestion -> cleaning -> datastore -> analysis siblings -> orchestration -> cli)"
+type = "layers"
+layers = [
+    "energy_research.cli",
+    "energy_research.orchestration",
+    "energy_research.generation | energy_research.screening | energy_research.backtesting | energy_research.critique | energy_research.reporting",
+    "energy_research.datastore",
+    "energy_research.cleaning",
+    "energy_research.ingestion",
+    "energy_research.common",
+    "energy_research.config",
+]
+
+# The layers contract alone would allow datastore -> cleaning/ingestion (higher may
+# import lower). architecture-boundaries.md explicitly forbids it: datastore persists
+# what cleaning hands it via datastore's own write API and never reaches upstream.
+[[tool.importlinter.contracts]]
+name = "Datastore never reaches upstream into ingestion/cleaning"
+type = "forbidden"
+source_modules = ["energy_research.datastore"]
+forbidden_modules = [
+    "energy_research.ingestion",
+    "energy_research.cleaning",
+]
+
+# No downstream layer may import a concrete provider adapter; providers are resolved
+# only through the config-keyed registry (contracts/data-connector.md rule 1).
+[[tool.importlinter.contracts]]
+name = "No layer imports a concrete provider adapter"
+type = "forbidden"
+source_modules = [
+    "energy_research.cleaning",
+    "energy_research.datastore",
+    "energy_research.generation",
+    "energy_research.screening",
+    "energy_research.backtesting",
+    "energy_research.critique",
+    "energy_research.reporting",
+    "energy_research.orchestration",
+    "energy_research.cli",
+]
+forbidden_modules = ["energy_research.ingestion.providers"]
+
+# Structural exclusion of any broker/execution/order-placement path
+# (Constitution Principle III, spec Out of Scope).
+[[tool.importlinter.contracts]]
+name = "No broker/execution/order-placement dependency anywhere"
+type = "forbidden"
+source_modules = ["energy_research"]
+forbidden_modules = [
+    "ib_insync",
+    "ibapi",
+    "ccxt",
+    "alpaca",
+    "alpaca_trade_api",
+    "oandapyV20",
+    "MetaTrader5",
+    "kiteconnect",
+    "binance",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
