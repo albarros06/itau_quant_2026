@@ -92,6 +92,33 @@ introduced no new dependencies, layers, or provider-specific logic beyond what's
 All entities (data-model.md) and contracts carry the same guarantees analyzed in the table above.
 **Result: still PASS, no changes.***
 
+*Post-implementation re-check (2026-07-18, after `/speckit-implement`): all 8 principles
+walked against the implemented code and test suite. I: connector protocols + config-keyed
+registry implemented; `tests/contract/test_architecture_boundaries.py` mechanically forbids
+any layer from importing a concrete provider. II: split scoping is structural
+(`Repository.read_{discovery,refinement,final_evaluation}_data` are the only price-read
+paths) and the ledger's atomic spend is exercised under concurrency in
+`tests/contract/test_evaluation_ledger.py`. III: two-stage validation implemented for both
+thesis and critique schemas; the no-broker-package rule is an import-linter contract plus an
+installed-package check. IV: cost columns are `NOT NULL` in SQLite; synthetic labeling is
+verified end-to-end in `tests/integration/test_synthetic_labeling.py`. V: still N/A (no UI
+in this feature). VI: all market/provider/threshold values in `config/`; the multiplicity
+control is non-disableable at the schema level (`tests/contract/test_multiplicity_control.py`).
+VII: verified by `tests/integration/test_data_quality_failloud.py`. VIII: verified by
+`tests/integration/test_reproducibility.py` (exact replay).*
+
+*Recorded drift (2 items, neither a principle violation):*
+
+1. *The low-level structured-LLM transport lives in `common/llm.py`, shared by the
+   `generation` and `critique` layers, rather than being duplicated "inside" each layer
+   (research.md §3 wording; tasks.md T045 said critique "reuses `llm_client` from T021").
+   A literal reading of T045 would require `critique` → `generation` imports, which the
+   architecture-boundaries independence contract forbids. Each layer keeps its own thin
+   schema-constrained adapter; the shared transport knows nothing about theses or critiques.*
+2. *`statsmodels` (and `scipy` directly) are pinned per this plan's dependency list but the
+   default block-bootstrap screening method is implemented with numpy alone; they remain
+   available for additional configured screening methods (FR-016).*
+
 ## Project Structure
 
 ### Documentation (this feature)

@@ -1,0 +1,66 @@
+# Default pipeline configuration (Constitution Principle VI: nothing market- or
+# provider-specific is hardcoded — this file is the single place to change it).
+# No secrets belong here: credentials are referenced by env-var NAME in providers.yaml.
+
+providers_file: providers.yaml # resolved relative to this file
+
+datastore:
+  db_path: data/research.sqlite
+  lake_dir: data/lake
+  reports_dir: data/reports
+
+instrument_universe:
+  - key: BR_POWER_SE_SPOT
+    category: spot
+    description: SE/CO submarket spot power price (PLD-style daily settlement)
+  - key: BR_POWER_SE_FWD_M1
+    category: forward_curve
+    description: SE/CO front-month forward power price
+  - key: BR_POWER_SE_FWD_M3
+    category: forward_curve
+    description: SE/CO 3-month forward power price
+  - key: BR_HYDRO_SE_RESERVOIR
+    category: hydrology
+    description: SE/CO aggregate reservoir level (% of max stored energy)
+  - key: BR_DI_1Y
+    category: interest_rate
+    description: 1y DI interest-rate curve point
+  - key: BRL_USD_FX
+    category: fx
+    description: BRL/USD exchange rate
+
+data_quality:
+  freshness_tolerance_days: 7
+  max_gap_days: 7
+  outlier_zscore_threshold: 8.0
+
+splits:
+  discovery_fraction: 0.5
+  refinement_fraction: 0.3
+  # remaining fraction of the history is the final_evaluation period
+
+screening:
+  method: block_bootstrap
+  n_bootstrap: 400
+  block_size: 10
+  alpha: 0.10
+  multiplicity_method: benjamini_hochberg
+
+backtesting:
+  transaction_cost_bps: 5.0
+  slippage_bps: 3.0
+  financing_annual_rate: 0.11
+  underperform_net_return_threshold: 0.0
+  promotion_net_return_threshold: 0.0
+
+refinement:
+  max_refinement_depth_per_lineage: 2
+  max_lineages_per_run: 5
+
+generation:
+  backend: deterministic_stub # or: anthropic
+  anthropic_model: claude-opus-4-8
+  max_theses_per_cycle: 5
+
+reproducibility:
+  seed: 20260718 # omit / null to auto-generate (recorded on the cycle either way)

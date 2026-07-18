@@ -38,3 +38,8 @@ Thumbs.db
 *.swp
 .idea/
 .vscode/
+
+# --- Pipeline runtime artifacts (datastore, Parquet lake, generated reports) ---
+data/
+*.sqlite
+*.sqlite3

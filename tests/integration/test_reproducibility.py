@@ -1,0 +1,59 @@
+"""US4 reproducibility (spec.md User Story 4 Scenario 2, SC-009): replaying a
+completed cycle from its recorded config snapshot + seed reproduces the same
+shortlist and verdicts."""
+
+from __future__ import annotations
+
+from energy_research.datastore.repository import Repository
+from energy_research.orchestration.cycle import replay_cycle, run_cycle
+from energy_research.orchestration.ingest import ingest_all
+
+
+def _outcome_fingerprint(repo: Repository, cycle_id: str) -> list[tuple]:
+    """Cycle outcome keyed by hypothesis content (ids differ across replays)."""
+    fingerprint = []
+    for thesis in repo.theses_for_cycle(cycle_id):
+        hyp = thesis["hypothesis"]
+        screening = repo.screening_result_for(thesis["thesis_id"])
+        fingerprint.append(
+            (
+                thesis["iteration_index"],
+                tuple(hyp.get("instruments", [])),
+                hyp.get("direction"),
+                thesis["status"],
+                None
+                if screening is None
+                else (
+                    screening["verdict"],
+                    round(screening["p_value"], 12),
+                    round(screening["adjusted_threshold"], 12),
+                ),
+                tuple(
+                    (bt["split_type"], round(bt["net_return"], 12))
+                    for bt in repo.backtest_results_for(thesis["thesis_id"])
+                ),
+            )
+        )
+    return sorted(fingerprint)
+
+
+def test_replay_reproduces_shortlist_and_verdicts(pipeline_config):
+    ingest_all(pipeline_config)
+    original = run_cycle(pipeline_config)
+    replayed = replay_cycle(pipeline_config, original.cycle_id)
+
+    assert replayed.cycle_id != original.cycle_id, "replay is a new, auditable cycle"
+    assert replayed.seed == original.seed, "replay must reuse the recorded seed"
+
+    repo = Repository(pipeline_config.datastore.db_path, pipeline_config.datastore.lake_dir)
+    try:
+        original_fp = _outcome_fingerprint(repo, original.cycle_id)
+        replayed_fp = _outcome_fingerprint(repo, replayed.cycle_id)
+    finally:
+        repo.close()
+
+    assert original_fp == replayed_fp, (
+        "identical config snapshot + seed must yield identical theses, verdicts, "
+        "and net-of-cost results"
+    )
+    assert len(replayed.promoted_thesis_ids) == len(original.promoted_thesis_ids)
