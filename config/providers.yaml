@@ -7,6 +7,33 @@ market_data:
   - interest_rate
   - spot
   options: {}
+- provider_id: ccee_pld_media_diaria
+  categories:
+  - spot
+  options:
+    provider_id: ccee_pld_media_diaria
+    credential:
+      env_var_name: CCEE_PLACEHOLDER_TOKEN
+      purpose: market_data
+    base_url: https://dadosabertos.ccee.org.br
+    endpoints:
+    - category: spot
+      path_template: /datastore/dump/3ca83769-de89-4dc5-84a7-0128167b594d?format=json
+      method: GET
+      field_mapping:
+        instrument_key: '[2]'
+        ts: '[3]'
+        value: '[4]'
+        provenance: '`"real"`'
+      results_path: records
+      ts_format: '%d/%m/%Y'
+    pagination:
+      mode: none
+      limit_param: null
+      offset_param: null
+      cursor_param: null
+      next_cursor_path: null
+  connector_kind: declarative
 qualitative_context:
 - provider_id: sample_provider
   categories:
