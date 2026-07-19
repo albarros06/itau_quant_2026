@@ -48,6 +48,32 @@ class StructuredBackend(Protocol):
         ...
 
 
+def _inline_refs(schema: dict) -> dict:
+    """Resolve ``$defs``/``$ref`` into a fully inlined schema.
+
+    Gemini's structured-output mode has historically rejected ``$defs``/``$ref``
+    outright, and even where supported, deeply nested schemas can be flaky.
+    Inlining avoids depending on which API version/SDK is in play. None of this
+    project's schemas are recursive, so a plain recursive resolve is safe (no
+    risk of infinite recursion).
+    """
+    defs = schema.get("$defs", {})
+    if not defs:
+        return schema
+
+    def resolve(node: Any) -> Any:
+        if isinstance(node, dict):
+            if "$ref" in node:
+                ref_name = node["$ref"].rsplit("/", 1)[-1]
+                return resolve(dict(defs.get(ref_name, {})))
+            return {k: resolve(v) for k, v in node.items() if k != "$defs"}
+        if isinstance(node, list):
+            return [resolve(v) for v in node]
+        return node
+
+    return resolve(schema)
+
+
 def _strip_unsupported(schema: dict) -> dict:
     """Remove JSON Schema constraints the structured-output API doesn't support.
 
@@ -109,6 +135,53 @@ class AnthropicStructuredBackend:
                 payloads.append({"__refused__": True})
                 continue
             text = next((b.text for b in response.content if b.type == "text"), "")
+            try:
+                payloads.append(json.loads(text))
+            except json.JSONDecodeError:
+                payloads.append({"__unparseable__": text[:200]})
+        return payloads
+
+
+class GeminiStructuredBackend:
+    """Google Gemini API adapter constrained to a JSON schema. One payload per call."""
+
+    def __init__(self, model: str, api_key_env: str = "GEMINI_API_KEY"):
+        from google import genai  # deferred so offline (stub) runs never require the package
+
+        api_key = os.environ.get(api_key_env)
+        if not api_key:
+            raise RuntimeError(
+                f"generation.backend=gemini but env var {api_key_env} is not set; "
+                "credentials are referenced by env-var name only (never in config)"
+            )
+        self._client = genai.Client(api_key=api_key)
+        self._model = model
+
+    def complete(self, request: StructuredRequest) -> list[Any]:
+        payloads: list[Any] = []
+        schema = _inline_refs(_strip_unsupported(request.json_schema))
+        for i in range(request.n):
+            prompt = (
+                request.prompt
+                if request.n == 1
+                else f"{request.prompt}\n\nThis is proposal {i + 1} of {request.n}; "
+                "it must differ materially from any earlier proposal."
+            )
+            try:
+                response = self._client.models.generate_content(
+                    model=self._model,
+                    contents=prompt,
+                    config={
+                        "system_instruction": request.system,
+                        "response_mime_type": "application/json",
+                        "response_json_schema": schema,
+                    },
+                )
+            except Exception as exc:
+                log.warning("Gemini call failed for a %s request: %s", request.task, exc)
+                payloads.append({"__unparseable__": str(exc)[:200]})
+                continue
+            text = response.text or ""
             try:
                 payloads.append(json.loads(text))
             except json.JSONDecodeError:
@@ -221,4 +294,6 @@ def build_backend(backend: str, model: str, api_key_env: str) -> StructuredBacke
         return DeterministicStubBackend()
     if backend == "anthropic":
         return AnthropicStructuredBackend(model=model, api_key_env=api_key_env)
+    if backend == "gemini":
+        return GeminiStructuredBackend(model=model, api_key_env=api_key_env)
     raise ValueError(f"unknown LLM backend {backend!r}")

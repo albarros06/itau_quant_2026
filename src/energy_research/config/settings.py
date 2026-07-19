@@ -111,9 +111,9 @@ class RefinementConfig(StrictModel):
 
 
 class GenerationConfig(StrictModel):
-    backend: Literal["deterministic_stub", "anthropic"] = "deterministic_stub"
-    anthropic_model: str = "claude-opus-4-8"
-    anthropic_api_key_env: str = "ANTHROPIC_API_KEY"
+    backend: Literal["deterministic_stub", "anthropic", "gemini"] = "deterministic_stub"
+    model: str = "claude-opus-4-8"
+    api_key_env: str = "ANTHROPIC_API_KEY"
     max_theses_per_cycle: int = Field(default=5, ge=1)
 
 

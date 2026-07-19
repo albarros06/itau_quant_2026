@@ -27,7 +27,7 @@ class LlmConfig(StrictModel):
     # not itself in data-model.md's LlmConfig table but additive and backward
     # compatible (default preserves nothing since this field is required-with-
     # default, same treatment 001 gives its own backend selector).
-    backend: Literal["deterministic_stub", "anthropic"] = "deterministic_stub"
+    backend: Literal["deterministic_stub", "anthropic", "gemini"] = "deterministic_stub"
 
 
 class OperatingSchedule(StrictModel):

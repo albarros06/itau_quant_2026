@@ -20,29 +20,68 @@ from ops_agent.proposals.git_store import GitIdentityError
 log = get_logger("ops_agent.cli")
 
 
+def _resolve_proposal_id(agent: OpsAgent, id_or_prefix: str) -> str:
+    """Resolves an abbreviated proposal id (as printed by `bootstrap`/`status`,
+    which show only the first 8 characters) to its full id — the same way `git`
+    resolves an abbreviated commit SHA."""
+    matches = [p["id"] for p in agent.repo.list_proposals() if p["id"].startswith(id_or_prefix)]
+    if not matches:
+        raise LookupError(f"no proposal matching id {id_or_prefix!r}")
+    if len(matches) > 1:
+        raise LookupError(f"proposal id {id_or_prefix!r} is ambiguous: matches {matches}")
+    return matches[0]
+
+
 def main(argv: list[str] | None = None) -> int:
+    # A shared parent parser so `--config` works both before AND after the
+    # subcommand (`research-ops-agent --config X bootstrap` and
+    # `research-ops-agent bootstrap --config X` both work) — argparse subparsers
+    # don't inherit a parent-only option positioned after the subcommand token.
+    config_parent = argparse.ArgumentParser(add_help=False)
+    config_parent.add_argument(
+        "--config", default="config/ops_agent.yaml", help="path to the ops-agent configuration YAML"
+    )
+
     parser = argparse.ArgumentParser(
         prog="research-ops-agent",
         description="Autonomous operations agent for the energy-research pipeline",
-    )
-    parser.add_argument(
-        "--config", default="config/ops_agent.yaml", help="path to the ops-agent configuration YAML"
+        parents=[config_parent],
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("bootstrap", help="discover vendors and open provisioning proposals")
-    sub.add_parser("tick", help="one bounded pass: refresh data and trigger a cycle if due")
-    approve_parser = sub.add_parser("approve", help="merge a proposal branch (researcher-run only)")
+    sub.add_parser(
+        "bootstrap",
+        help="discover vendors and open provisioning proposals",
+        parents=[config_parent],
+    )
+    sub.add_parser(
+        "tick",
+        help="one bounded pass: refresh data and trigger a cycle if due",
+        parents=[config_parent],
+    )
+    approve_parser = sub.add_parser(
+        "approve", help="merge a proposal branch (researcher-run only)", parents=[config_parent]
+    )
     approve_parser.add_argument("proposal_id")
-    reject_parser = sub.add_parser("reject", help="mark a proposal rejected (researcher-run only)")
+    reject_parser = sub.add_parser(
+        "reject", help="mark a proposal rejected (researcher-run only)", parents=[config_parent]
+    )
     reject_parser.add_argument("proposal_id")
-    sub.add_parser("status", help="summarize schedule state, budgets, and pending proposals")
-    log_parser = sub.add_parser("log", help="print activity-log entries in chronological order")
+    sub.add_parser(
+        "status",
+        help="summarize schedule state, budgets, and pending proposals",
+        parents=[config_parent],
+    )
+    log_parser = sub.add_parser(
+        "log", help="print activity-log entries in chronological order", parents=[config_parent]
+    )
     log_parser.add_argument("--since")
     log_parser.add_argument("--until")
     log_parser.add_argument("--action")
     onboard_parser = sub.add_parser(
-        "onboard", help="draft a config-only onboarding proposal for a new vendor"
+        "onboard",
+        help="draft a config-only onboarding proposal for a new vendor",
+        parents=[config_parent],
     )
     onboard_parser.add_argument("--provider-id", required=True)
     onboard_parser.add_argument(
@@ -75,8 +114,9 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "approve":
             try:
-                proposal = agent.git_store.approve(args.proposal_id)
-            except GitIdentityError as exc:
+                full_id = _resolve_proposal_id(agent, args.proposal_id)
+                proposal = agent.git_store.approve(full_id)
+            except (GitIdentityError, LookupError) as exc:
                 parser.error(str(exc))
                 return 2
             print(f"{proposal.id[:8]} -> {proposal.status} ({proposal.applied_commit_sha})")
@@ -84,8 +124,9 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "reject":
             try:
-                proposal = agent.git_store.reject(args.proposal_id)
-            except GitIdentityError as exc:
+                full_id = _resolve_proposal_id(agent, args.proposal_id)
+                proposal = agent.git_store.reject(full_id)
+            except (GitIdentityError, LookupError) as exc:
                 parser.error(str(exc))
                 return 2
             print(f"{proposal.id[:8]} -> {proposal.status}")
