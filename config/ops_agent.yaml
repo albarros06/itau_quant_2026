@@ -10,9 +10,9 @@
 pipeline_config_path: config/default.yaml
 
 llm:
-  api_key_env: ANTHROPIC_API_KEY
-  model: claude-opus-4-8
-  backend: anthropic # or: deterministic_stub (offline, used by tests/sample runs)
+  api_key_env: GEMINI_API_KEY
+  model: gemini-2.5-flash
+  backend: gemini
 
 operating_schedule:
   cycle_cadence_hours: 24
@@ -30,7 +30,7 @@ remediation:
 
 git:
   proposal_branch_prefix: ops-proposal/
-  operating_branch: main
+  operating_branch: master # this repo's actual primary branch (not "main")
 
 notifications:
   sink: file
