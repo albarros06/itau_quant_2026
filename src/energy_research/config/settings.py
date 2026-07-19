@@ -30,16 +30,25 @@ class InstrumentConfig(StrictModel):
     description: str = ""
 
 
+ConnectorKind = Literal["python_module", "declarative"]
+
+
 class MarketProviderEntry(StrictModel):
     provider_id: str
     categories: list[DataCategory] = Field(min_length=1)
     options: dict[str, Any] = Field(default_factory=dict)
+    # "python_module" (default) preserves today's exact behavior: a module named
+    # after provider_id under ingestion/providers/. "declarative" routes to the
+    # one shared, config-driven connector instead (002 ops_agent, FR-016;
+    # data-model.md "Registry extension") — no per-vendor code either way.
+    connector_kind: ConnectorKind = "python_module"
 
 
 class ContextProviderEntry(StrictModel):
     provider_id: str
     categories: list[ContextCategory] = Field(min_length=1)
     options: dict[str, Any] = Field(default_factory=dict)
+    connector_kind: ConnectorKind = "python_module"
 
 
 class ProvidersConfig(StrictModel):

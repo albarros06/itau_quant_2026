@@ -39,6 +39,19 @@ _SHAPES: dict[str, tuple[float, float, float]] = {
 }
 _DEFAULT_SHAPE = (0.0, 0.015, 100.0)
 
+# category for each known instrument key (research.md §5 discover()); mirrors
+# config/default.yaml's instrument_universe exactly so a discovery-drafted
+# proposal reconstructs the same shape. Unlisted keys default to "spot" in
+# discover() below, same as _DEFAULT_SHAPE's role for series generation.
+_CATEGORY_BY_KEY: dict[str, str] = {
+    "BR_POWER_SE_SPOT": "spot",
+    "BR_POWER_SE_FWD_M1": "forward_curve",
+    "BR_POWER_SE_FWD_M3": "forward_curve",
+    "BR_HYDRO_SE_RESERVOIR": "hydrology",
+    "BR_DI_1Y": "interest_rate",
+    "BRL_USD_FX": "fx",
+}
+
 _CONTEXT_DOCS: dict[str, list[str]] = {
     "news": [
         "[SYNTHETIC SAMPLE] Regulator signals no change to SE/CO submarket price caps "
@@ -109,6 +122,40 @@ class SampleProvider:
 
     def health_check(self) -> ConnectorHealth:
         return ConnectorHealth(ok=True, detail="synthetic sample data, always available")
+
+    def discover(self) -> dict:
+        """Optional vendor-discovery probe (research.md §5, 002 ops_agent).
+
+        Returns a plain, VendorCatalog-shaped dict rather than an ``ops_agent`` type —
+        ``energy_research`` never imports ``ops_agent`` (contracts/ops-agent-boundary.md
+        rule 1); the agent's ``discovery.vendor_probe`` duck-types this shape instead.
+        Reports the vendor's full fixed catalog (``_CATEGORY_BY_KEY``) — what this
+        vendor CAN supply — independent of ``self._universe_keys`` (what a caller's
+        config currently asks for), so discovery can propose a candidate universe
+        larger than whatever is already configured. Market entries are grouped by
+        category (not a flat instrument list) so a proposal drafted from this
+        catalog can reconstruct real ``InstrumentConfig`` entries.
+        """
+        by_category: dict[str, list[str]] = {}
+        for key in _CATEGORY_BY_KEY:
+            by_category.setdefault(_CATEGORY_BY_KEY[key], []).append(key)
+        entries = [
+            {
+                "category": category,
+                "instrument_hints": keys,
+                "notes": "synthetic sample market series",
+            }
+            for category, keys in sorted(by_category.items())
+        ]
+        entries.extend(
+            {
+                "category": category,
+                "instrument_hints": [],
+                "notes": f"{len(docs)} sample document(s) available",
+            }
+            for category, docs in _CONTEXT_DOCS.items()
+        )
+        return {"provider_id": self.provider_id, "entries": entries}
 
 
 def build_market_connector(options: dict, config: PipelineConfig) -> SampleProvider:

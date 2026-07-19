@@ -69,6 +69,28 @@ class SecondaryMarketProvider:
             )
         return ConnectorHealth(ok=True, detail=f"serving files from {self._base_dir}")
 
+    def discover(self) -> dict:
+        """Optional vendor-discovery probe (research.md §5, 002 ops_agent).
+
+        A plain, VendorCatalog-shaped dict — see sample_provider.discover() for why
+        this is never an ``ops_agent`` type.
+        """
+        if not self._base_dir.is_dir():
+            return {"provider_id": self.provider_id, "entries": []}
+        instrument_hints = sorted(p.stem for p in self._base_dir.glob("*.csv"))
+        if not instrument_hints:
+            return {"provider_id": self.provider_id, "entries": []}
+        return {
+            "provider_id": self.provider_id,
+            "entries": [
+                {
+                    "category": "file_drop",
+                    "instrument_hints": instrument_hints,
+                    "notes": f"CSV files found in {self._base_dir}",
+                }
+            ],
+        }
+
 
 def build_market_connector(options: dict, config: PipelineConfig) -> SecondaryMarketProvider:
     provenance = options.get("provenance", "real")

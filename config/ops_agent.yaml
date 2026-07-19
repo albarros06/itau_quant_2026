@@ -1,0 +1,37 @@
+# Operations agent configuration (Constitution Principle VI: cadences, budgets, and
+# git/notification wiring live here, not hardcoded). No secrets belong here:
+# credentials are referenced by env-var NAME only (FR-001).
+#
+# Risk-side parameters (statistical evidence standard, cost/slippage/financing
+# assumptions, refinement-loop bounds) are NOT duplicated here — they live in 001's
+# own config/default.yaml and are edited via the normal proposal path like any other
+# pipeline configuration (research.md §6).
+
+pipeline_config_path: config/default.yaml
+
+llm:
+  api_key_env: ANTHROPIC_API_KEY
+  model: claude-opus-4-8
+  backend: anthropic # or: deterministic_stub (offline, used by tests/sample runs)
+
+operating_schedule:
+  cycle_cadence_hours: 24
+  market_refresh_cadence_hours: 6
+  qualitative_poll_cadence_hours: 2
+
+resource_budgets:
+  period: daily
+  max_llm_calls: 200
+  max_vendor_requests: 1000
+
+remediation:
+  max_retries: 3
+  backoff_seconds: 30
+
+git:
+  proposal_branch_prefix: ops-proposal/
+  operating_branch: main
+
+notifications:
+  sink: file
+  path: data/ops_agent/notifications.jsonl
