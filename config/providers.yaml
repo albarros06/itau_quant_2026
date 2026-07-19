@@ -24,7 +24,7 @@ market_data:
         instrument_key: '[2]'
         ts: '[3]'
         value: '[4]'
-        provenance: '"real"'
+        provenance: '`"real"`'
       results_path: records
       ts_format: '%d/%m/%Y'
     pagination:
