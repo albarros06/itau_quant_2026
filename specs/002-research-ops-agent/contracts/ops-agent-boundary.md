@@ -14,6 +14,13 @@ energy_research.datastore.repository       # Repository — READ-ONLY methods on
                                             #   cycle history, freshness checks already exposed
                                             #   for CLI use); no write method may be called
 energy_research.common.logging             # shared logger setup, for consistent log format only
+energy_research.common.llm                 # shared structured-output transport (StructuredRequest
+                                            #   -> validated JSON payload) — the same transport
+                                            #   generation/critique use; ops_agent supplies its own
+                                            #   task name + JSON schema (discovery interpretation,
+                                            #   proposal/onboarding drafting), never a thesis or
+                                            #   critique schema, and never imports generation/critique
+                                            #   themselves to get it (research.md §5)
 ```
 
 ## Denylist: no code path may exist to
