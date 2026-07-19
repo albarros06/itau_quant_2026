@@ -115,6 +115,25 @@ no other `energy_research` layer is touched. All `ops_agent` state (proposals in
 budgets, schedule, descriptors) lives in the new `data/ops_agent.sqlite`, never in 001's tables.
 **Result: still PASS, no changes.***
 
+*Post-implementation re-check (all 45 tasks complete, 138 tests passing — T043): walked all 8
+principles against the actual code, not just the design.*
+
+| Principle | Status | Verified against implementation |
+|---|---|---|
+| I. Provider-Agnostic Data Ingestion | **PASS** | `ingestion/providers/declarative.py` satisfies `MarketDataConnector`/`QualitativeContextConnector` exactly like every other provider (`tests/contract/test_declarative_connector_protocol.py`); `registry.py`'s `connector_kind` dispatch defaults to `python_module` (rule 1's existing behavior, byte-for-byte). **One documented amendment**: `contracts/ops-agent-boundary.md`'s allowlist was extended, during implementation, to include `energy_research.ingestion.registry` (read-only `market_connectors`/`context_connectors` construction only). This was required by `budget-contract.md` rule 1 itself — the budget guard must wrap the actual external `health_check()`/`discover()` call at its call site in `ops_agent.discovery.vendor_probe`, which is impossible without holding the connector instance directly. The registry is the same provider-swapping seam Principle I already designates (no concrete provider module is ever imported by `ops_agent`), so this is a narrowing clarification of the seam, not a new one. `tests/contract/test_ops_agent_boundary.py`'s reach audit enforces the amended allowlist exactly. |
+| II. Statistical Rigor Before Backtesting | **PASS (unaffected)** | The reach-audit test statically confirms zero `ops_agent` import path into `screening`/`datastore.ledger`/split-scoped `Repository` methods; `agent.py` only calls `run_cycle`/`ingest_all` as opaque functions and reads `CycleResult`. |
+| III. Constrained LLM Autonomy | **PASS** | Both LLM call sites (`discovery.interpret`, `onboarding.draft`) go through `energy_research.common.llm`'s transport and validate the response against `ProvisioningDraft`/`OnboardingDraft` `StrictModel`s; invalid payloads are rejected and logged (`propose`/`limitation_reported`, outcome `failed`), never repaired (`tests/unit/ops_agent/onboarding/test_draft.py`). No proposal takes effect without a human `git merge`: `git_store.approve()`/`reject()` refuse under the scheduled agent's own git identity marker (`tests/integration/test_ops_agent_us1_provisioning.py::test_approve_and_reject_refuse_under_the_agents_own_git_identity`). |
+| IV. Backtest Honesty | **PASS (unaffected)** | `agent.tick()` surfaces `CycleResult.report_path`/`promoted_thesis_ids` verbatim into `notify()`; no field is recomputed or filtered. |
+| V. Mobile-First, Fully Responsive UI | **N/A (deferred)** | No UI shipped; notifications remain file/log based (`notify.py`). |
+| VI. Configuration Over Hardcoding | **PASS** | `OpsAgentConfig` (`extra="forbid"`) requires `resource_budgets`/`remediation` explicitly — no hidden defaults for a required control (budget-contract.md rule 5, verified by `tests/contract/test_budget_enforcement.py::test_zero_limit_blocks_the_first_call`); `remediation.max_retries`/`backoff_seconds` are read from config in `remediation.py`, never a literal constant. |
+| VII. Fail-Loud Observability | **PASS** | Every action category in the `AgentActivityLogEntry.action` enum is exercised by at least one test: `credential_error`/`discover`/`propose` (US1), `remediate`/`escalate`/`checked_and_empty` (US2), `limitation_reported` (US4), `budget_blocked` (budget contract test). `tests/contract/test_activity_log_append_only.py` statically confirms no `UPDATE`/`DELETE` path exists against `activity_log`. |
+| VIII. Simplicity & Reproducibility | **PASS** | `tests/integration/test_ops_agent_us3_change_control.py::test_replay_is_independent_of_agent_activity_before_or_after` confirms SC-007 holds with `ops_agent` activity happening both before and after the replayed cycle — `ops_agent` changes only which file is on disk before a cycle starts, never how a cycle records or replays it. |
+
+**Result**: Still PASS overall, with the one documented, narrowly-scoped allowlist amendment above
+(also reflected in `contracts/ops-agent-boundary.md` itself). No Complexity Tracking entry needed —
+the amendment sharpens an existing seam rather than introducing a new dependency direction or
+principle deviation.
+
 ## Project Structure
 
 ### Documentation (this feature)

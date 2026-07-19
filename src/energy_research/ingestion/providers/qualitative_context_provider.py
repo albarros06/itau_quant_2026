@@ -55,6 +55,26 @@ class QualitativeContextProvider:
             )
         return ConnectorHealth(ok=True, detail=f"serving files from {self._base_dir}")
 
+    def discover(self) -> dict:
+        """Optional vendor-discovery probe (research.md §5, 002 ops_agent).
+
+        A plain, VendorCatalog-shaped dict — see sample_provider.discover() for why
+        this is never an ``ops_agent`` type.
+        """
+        if not self._base_dir.is_dir():
+            return {"provider_id": self.provider_id, "entries": []}
+        return {
+            "provider_id": self.provider_id,
+            "entries": [
+                {
+                    "category": p.stem,
+                    "instrument_hints": [],
+                    "notes": f"context documents found in {p}",
+                }
+                for p in sorted(self._base_dir.glob("*.jsonl"))
+            ],
+        }
+
 
 def build_context_connector(options: dict, config: PipelineConfig) -> QualitativeContextProvider:
     provenance = options.get("provenance", "real")

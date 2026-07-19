@@ -1,10 +1,17 @@
 """Config-keyed provider registry (FR-002).
 
-Resolves ``provider_id`` -> connector instance by importing
-``energy_research.ingestion.providers.<provider_id>`` and calling its
-``build_market_connector`` / ``build_context_connector`` factory. No code outside
-this registry ever imports a concrete provider module (enforced by the
-import-linter contract "No layer imports a concrete provider adapter").
+Resolves ``provider_id`` -> connector instance. Two dispatch modes per provider
+entry's ``connector_kind`` (data-model.md "Registry extension", 002 ops_agent):
+
+- ``python_module`` (default): imports ``energy_research.ingestion.providers.
+  <provider_id>`` and calls its ``build_market_connector``/``build_context_connector``
+  factory — today's exact, unchanged behavior.
+- ``declarative``: routes to the one shared ``ingestion.providers.declarative``
+  module instead, handing it the ``DataSourceDescriptor`` carried in ``options``
+  (FR-016/017) — no per-vendor Python module involved.
+
+No code outside this registry ever imports a concrete provider module (enforced by
+the import-linter contract "No layer imports a concrete provider adapter").
 """
 
 from __future__ import annotations
@@ -12,13 +19,16 @@ from __future__ import annotations
 import importlib
 from typing import Any
 
-from energy_research.config.settings import PipelineConfig
+from energy_research.config.settings import ConnectorKind, PipelineConfig
 from energy_research.ingestion.connector import MarketDataConnector, QualitativeContextConnector
 
 _PROVIDER_PACKAGE = "energy_research.ingestion.providers"
+_DECLARATIVE_MODULE = f"{_PROVIDER_PACKAGE}.declarative"
 
 
-def _load_provider_module(provider_id: str) -> Any:
+def _load_provider_module(provider_id: str, connector_kind: ConnectorKind) -> Any:
+    if connector_kind == "declarative":
+        return importlib.import_module(_DECLARATIVE_MODULE)
     try:
         return importlib.import_module(f"{_PROVIDER_PACKAGE}.{provider_id}")
     except ImportError as exc:
@@ -32,7 +42,7 @@ def market_connectors(config: PipelineConfig) -> dict[str, MarketDataConnector]:
     """provider_id -> MarketDataConnector for every configured market-data provider."""
     result: dict[str, MarketDataConnector] = {}
     for entry in config.providers.market_data:
-        module = _load_provider_module(entry.provider_id)
+        module = _load_provider_module(entry.provider_id, entry.connector_kind)
         if not hasattr(module, "build_market_connector"):
             raise LookupError(
                 f"provider module {entry.provider_id!r} defines no build_market_connector()"
@@ -48,7 +58,7 @@ def context_connectors(config: PipelineConfig) -> dict[str, QualitativeContextCo
     """provider_id -> QualitativeContextConnector for every configured context provider."""
     result: dict[str, QualitativeContextConnector] = {}
     for entry in config.providers.qualitative_context:
-        module = _load_provider_module(entry.provider_id)
+        module = _load_provider_module(entry.provider_id, entry.connector_kind)
         if not hasattr(module, "build_context_connector"):
             raise LookupError(
                 f"provider module {entry.provider_id!r} defines no build_context_connector()"

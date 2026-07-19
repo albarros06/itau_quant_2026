@@ -71,6 +71,45 @@ The default configuration uses the clearly labeled synthetic `sample_provider`;
 set `generation.backend: anthropic` (and export `ANTHROPIC_API_KEY`) for real
 LLM-driven thesis generation.
 
+## Operations agent (`ops_agent`)
+
+A second, structurally-separate package, `src/ops_agent/`, operates the pipeline
+above end to end: discovering vendor offerings, drafting provisioning/onboarding
+proposals, keeping data fresh, triggering cycles on a cadence, and surfacing
+shortlists — while `energy_research` itself stays the unchanged substrate.
+
+Feature docs: [specs/002-research-ops-agent/](specs/002-research-ops-agent/) — see
+[quickstart.md](specs/002-research-ops-agent/quickstart.md) for operating the agent
+and [plan.md](specs/002-research-ops-agent/plan.md) for the design.
+
+```text
+ops_agent  ──imports──▶  energy_research      (one-directional; energy_research
+   │                                            never imports ops_agent — enforced
+   │                                            by an import-linter contract)
+   ├─ discovery/    vendor catalog probing + LLM interpretation into draft proposals
+   ├─ proposals/    git-branch-based change control (ops-proposal/* branches;
+   │                approval = a human `git merge`, never the agent itself)
+   ├─ onboarding/   config-only vendor onboarding (Data Source Descriptor drafting)
+   ├─ store/        data/ops_agent.sqlite — activity log, budgets, schedule, proposals
+   ├─ budget.py     per-period LLM/vendor-request spend guard
+   ├─ scheduling.py cadence-driven "is X due" for cycle/market-refresh/qualitative-poll
+   ├─ remediation.py bounded retry-then-escalate on stale/missing data
+   └─ agent.py      bootstrap() / tick(): the two entry points cli.py wires up
+```
+
+The agent's reach is structurally limited to configuration proposals, data
+ingestion, cycle triggering, and reading outputs — it has no import path to
+`generation`/`screening`/`backtesting`/`critique`/`reporting`/`datastore.ledger`
+(contracts/ops-agent-boundary.md), mechanically enforced the same way as every
+other architecture boundary in this repo.
+
+```bash
+uv run research-ops-agent bootstrap --config config/ops_agent.yaml   # discover -> proposals
+uv run research-ops-agent approve   <proposal-id>                     # human-run only
+uv run research-ops-agent tick      --config config/ops_agent.yaml   # refresh + cycle if due
+uv run research-ops-agent log       --since <ts>                      # full audit trail
+```
+
 ## Development
 
 ```bash

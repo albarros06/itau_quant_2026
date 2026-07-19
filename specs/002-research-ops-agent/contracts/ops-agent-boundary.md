@@ -8,7 +8,8 @@ instruction."
 
 ```text
 energy_research.config.settings           # load_config, PipelineConfig (read + trigger reload)
-energy_research.orchestration.ingest       # ingest_all(config) — the ONLY ingestion entry point
+energy_research.orchestration.ingest       # ingest_all(config) — the ONLY ingestion-*run* entry
+                                            #   point (fetch + clean + persist all providers)
 energy_research.orchestration.cycle        # run_cycle(config), replay_cycle(config, cycle_id)
 energy_research.datastore.repository       # Repository — READ-ONLY methods only (report lookup,
                                             #   cycle history, freshness checks already exposed
@@ -21,6 +22,19 @@ energy_research.common.llm                 # shared structured-output transport 
                                             #   proposal/onboarding drafting), never a thesis or
                                             #   critique schema, and never imports generation/critique
                                             #   themselves to get it (research.md §5)
+energy_research.ingestion.registry         # market_connectors(config)/context_connectors(config)
+                                            #   ONLY — read-only connector construction, the exact
+                                            #   mechanism 001's own orchestration.ingest already uses
+                                            #   to reach providers (Principle I: the registry, not a
+                                            #   concrete provider module, is the seam). Needed so
+                                            #   discovery.vendor_probe can wrap each connector's own
+                                            #   health_check()/discover() call in budget.guard(...)
+                                            #   directly at the call site (budget-contract.md rule 1
+                                            #   requires the guard at the actual external call, which
+                                            #   rules out routing probing through an energy_research-
+                                            #   side function instead). No connector module itself is
+                                            #   ever imported by ops_agent — only the registry that
+                                            #   resolves one.
 ```
 
 ## Denylist: no code path may exist to

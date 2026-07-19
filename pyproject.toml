@@ -12,6 +12,8 @@ dependencies = [
     "scipy>=1.13",
     "statsmodels>=0.14",
     "anthropic>=0.40",
+    "httpx>=0.27",
+    "jmespath>=1.0",
 ]
 
 [dependency-groups]
@@ -23,13 +25,14 @@ dev = [
 
 [project.scripts]
 research-pipeline = "energy_research.cli:main"
+research-ops-agent = "ops_agent.cli:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/energy_research"]
+packages = ["src/energy_research", "src/ops_agent"]
 
 # ---------------------------------------------------------------------------
 # Architecture boundary contracts (contracts/architecture-boundaries.md).
@@ -37,7 +40,7 @@ packages = ["src/energy_research"]
 # so a boundary violation is a test failure, not a review-time observation.
 # ---------------------------------------------------------------------------
 [tool.importlinter]
-root_package = "energy_research"
+root_packages = ["energy_research", "ops_agent"]
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
@@ -101,6 +104,16 @@ forbidden_modules = [
     "kiteconnect",
     "binance",
 ]
+
+# ops_agent (002) may import energy_research (its CLI-equivalent entry points and
+# read-only repository access); energy_research MUST NEVER import ops_agent — a
+# one-directional dependency, mechanically enforced (contracts/ops-agent-boundary.md
+# rule 1, FR-019).
+[[tool.importlinter.contracts]]
+name = "ops_agent / energy_research independence (one-directional)"
+type = "forbidden"
+source_modules = ["energy_research"]
+forbidden_modules = ["ops_agent"]
 
 [tool.ruff]
 line-length = 100
