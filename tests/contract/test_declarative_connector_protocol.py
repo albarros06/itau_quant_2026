@@ -196,6 +196,81 @@ def test_missing_credential_raises_visibly_never_treated_as_no_auth(monkeypatch)
         connector.fetch_series("spot", "FIX_INST")
 
 
+def test_results_path_and_ts_format_handle_a_ckan_style_columnar_envelope(monkeypatch):
+    """Mirrors CCEE Dados Abertos' real /datastore/dump/ shape: elements live
+    under a top-level "records" key (not "data"), each element is a positional
+    array (not a keyed object), and the date is DD/MM/AAAA, not ISO-8601."""
+    monkeypatch.setenv("FIXTURE_VENDOR_API_KEY", "secret-token")
+    descriptor = {
+        "provider_id": "ckan_style_vendor",
+        "credential": {"env_var_name": "FIXTURE_VENDOR_API_KEY", "purpose": "market_data"},
+        "base_url": "https://fixture.example.test",
+        "endpoints": [
+            {
+                "category": "spot",
+                "path_template": "/datastore/dump/abc123",
+                "method": "GET",
+                "field_mapping": {
+                    "instrument_key": "[2]",
+                    "ts": "[3]",
+                    "value": "[4]",
+                    "provenance": '`"real"`',
+                },
+                "results_path": "records",
+                "ts_format": "%d/%m/%Y",
+            }
+        ],
+        "pagination": {"mode": "none"},
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "fields": [
+                    {"id": "_id", "type": "int"},
+                    {"id": "MES_REFERENCIA", "type": "text"},
+                    {"id": "SUBMERCADO", "type": "text"},
+                    {"id": "DIA", "type": "text"},
+                    {"id": "PLD_MEDIA_DIA", "type": "numeric"},
+                ],
+                "records": [
+                    [1, "202605", "NORDESTE", "14/05/2026", 188.53],
+                    [2, "202605", "NORTE", "14/05/2026", 202.2],
+                ],
+            },
+        )
+
+    connector = DeclarativeConnector(
+        DataSourceDescriptor.model_validate(descriptor),
+        transport=httpx.MockTransport(handler),
+    )
+    observations = connector.fetch_series("spot", "NORDESTE")
+
+    assert len(observations) == 2
+    assert observations[0].instrument_key == "NORDESTE"
+    assert observations[0].value == 188.53
+    assert observations[0].provenance == "real"
+    assert observations[0].ts.year == 2026
+    assert observations[0].ts.month == 5
+    assert observations[0].ts.day == 14
+
+
+def test_results_path_ignores_non_list_result(monkeypatch):
+    monkeypatch.setenv("FIXTURE_VENDOR_API_KEY", "secret-token")
+    descriptor = dict(MARKET_DESCRIPTOR)
+    descriptor["endpoints"] = [dict(MARKET_DESCRIPTOR["endpoints"][0], results_path="missing.key")]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"data": []})
+
+    connector = DeclarativeConnector(
+        DataSourceDescriptor.model_validate(descriptor),
+        transport=httpx.MockTransport(handler),
+    )
+    assert connector.fetch_series("spot", "FIX_INST") == []
+
+
 def test_health_check_reports_missing_credential_without_raising(monkeypatch):
     monkeypatch.delenv("FIXTURE_VENDOR_API_KEY", raising=False)
 

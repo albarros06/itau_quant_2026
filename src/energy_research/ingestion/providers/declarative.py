@@ -37,6 +37,13 @@ class _EndpointSpec(_StrictModel):
     path_template: str
     method: Literal["GET", "POST"] = "GET"
     field_mapping: dict[str, str]
+    # JMESPath into the raw response locating the elements array, for envelopes
+    # that are neither a bare array nor {"data": [...]} (e.g. "records" or
+    # "result.records"). None preserves the original data-key/bare-array lookup.
+    results_path: str | None = None
+    # strptime pattern for non-ISO timestamp strings (e.g. "%d/%m/%Y"). None
+    # preserves the original datetime.fromisoformat parsing.
+    ts_format: str | None = None
 
 
 class _PaginationSpec(_StrictModel):
@@ -76,15 +83,27 @@ def _resolve_credential(ref: _CredentialReference, provider_id: str) -> str:
     return value
 
 
-def _elements_of(payload: Any) -> list[Any]:
-    """The response is either a bare JSON array of elements, or a JSON object
+def _elements_of(payload: Any, results_path: str | None = None) -> list[Any]:
+    """The response is either a bare JSON array of elements, a JSON object
     carrying them under a top-level ``data`` key (used whenever an envelope is
-    also needed to carry a cursor)."""
+    also needed to carry a cursor), or — when the descriptor sets
+    ``results_path`` — whatever a JMESPath expression against the response
+    locates, for envelopes that use neither convention."""
+    if results_path is not None:
+        found = jmespath.search(results_path, payload)
+        return found if isinstance(found, list) else []
     if isinstance(payload, list):
         return payload
     if isinstance(payload, dict):
         return payload.get("data", [])
     return []
+
+
+def _parse_ts(raw: str, ts_format: str | None) -> datetime:
+    ts = datetime.strptime(raw, ts_format) if ts_format else datetime.fromisoformat(raw)
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=UTC)
+    return ts
 
 
 class DeclarativeConnector:
@@ -124,7 +143,7 @@ class DeclarativeConnector:
 
         if pagination.mode == "none":
             payload = self._request(endpoint, path_params, {})
-            return _elements_of(payload)
+            return _elements_of(payload, endpoint.results_path)
 
         if pagination.mode == "offset":
             offset = 0
@@ -135,7 +154,7 @@ class DeclarativeConnector:
                 if pagination.offset_param:
                     query[pagination.offset_param] = offset
                 payload = self._request(endpoint, path_params, query)
-                page = _elements_of(payload)
+                page = _elements_of(payload, endpoint.results_path)
                 if not page:
                     break
                 elements.extend(page)
@@ -149,7 +168,7 @@ class DeclarativeConnector:
                 if cursor is not None and pagination.cursor_param:
                     query[pagination.cursor_param] = cursor
                 payload = self._request(endpoint, path_params, query)
-                elements.extend(_elements_of(payload))
+                elements.extend(_elements_of(payload, endpoint.results_path))
                 next_cursor = (
                     jmespath.search(pagination.next_cursor_path, payload)
                     if pagination.next_cursor_path
@@ -171,9 +190,7 @@ class DeclarativeConnector:
         observations: list[RawObservation] = []
         for element in elements:
             ts_raw = jmespath.search(mapping["ts"], element)
-            ts = datetime.fromisoformat(ts_raw)
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=UTC)
+            ts = _parse_ts(ts_raw, endpoint.ts_format)
             if since is not None and ts <= since:
                 continue
             observations.append(
@@ -195,9 +212,7 @@ class DeclarativeConnector:
         docs: list[RawContextDoc] = []
         for element in elements:
             ts_raw = jmespath.search(mapping["ts"], element)
-            ts = datetime.fromisoformat(ts_raw)
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=UTC)
+            ts = _parse_ts(ts_raw, endpoint.ts_format)
             if since is not None and ts <= since:
                 continue
             docs.append(

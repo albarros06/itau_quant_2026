@@ -26,6 +26,13 @@ endpoints:
       source: str                 # context docs only
       text: str                   # context docs only
       provenance: str
+    results_path: str | None      # optional JMESPath into the raw response locating the elements
+                                   # array, for envelopes that are neither a bare array nor
+                                   # {"data": [...]} (e.g. "records", "result.records"). Elements
+                                   # need not be objects — a positional JMESPath index (e.g. "[3]")
+                                   # is valid when a vendor's rows are arrays, not keyed objects.
+    ts_format: str | None         # optional strptime pattern (e.g. "%d/%m/%Y") for vendors whose
+                                   # timestamp string is not ISO-8601. Omit for ISO-8601 timestamps.
 pagination:
   mode: "none" | "offset" | "cursor"
   # mode="offset": limit_param, offset_param
@@ -41,10 +48,14 @@ pagination:
    auth" (FR-001, Edge Case).
 2. **Fetch**: for `fetch_series(category, instrument_key, since)` /
    `fetch_context(category, since)`, the connector renders `path_template` with the supplied
-   parameters, issues the request via `httpx`, and evaluates each `field_mapping` entry with
+   parameters, issues the request via `httpx`, locates the elements array within the raw response
+   (a bare array, the `data` key, or — if the endpoint sets `results_path` — whatever that
+   JMESPath expression finds), and evaluates each `field_mapping` entry with
    `jmespath.search(expression, response_element)` for every element the response's pagination
    yields, producing `RawObservation`/`RawContextDoc` instances exactly as 001's
    `data-connector.md` requires — normalized shape, no further caller-side interpretation needed.
+   `ts` is parsed via `datetime.fromisoformat`, or via `endpoint.ts_format` (a `strptime` pattern)
+   when the vendor's timestamp string is not ISO-8601.
 3. **Provenance**: `provenance` is always read from the descriptor's mapping (per-element or a
    fixed literal in the descriptor), never inferred — matching 001's connector contract rule that
    provenance is declared, not guessed.
@@ -69,8 +80,10 @@ pagination:
    - an auth scheme other than a single bearer/API-key header (e.g., OAuth handshake, mutual TLS,
      signed-request HMAC),
    - pagination beyond simple offset or single-cursor-field cursor,
-   - a response shape JMESPath cannot flatten into one element per canonical field (e.g.,
-     cross-referencing two separate endpoints per record),
+   - a response shape no combination of `results_path`/JMESPath `field_mapping`/`ts_format` can
+     flatten into one element per canonical field (e.g., cross-referencing two separate endpoints
+     per record, or a timestamp split across multiple fields with no single field a `ts_format`
+     pattern can parse),
    - a non-HTTP transport (FTP, message queue, file drop outside the existing dropzone pattern).
    The agent reports `reason` and `unsupported_aspect` (data-model.md) rather than emitting a
    descriptor that would silently fail or misparse at ingestion time (FR-018).

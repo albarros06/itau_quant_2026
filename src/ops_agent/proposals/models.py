@@ -96,6 +96,21 @@ class EndpointSpec(StrictModel):
     # canonical field name -> JMESPath expression evaluated against one response
     # element (contracts/declarative-connector.md).
     field_mapping: dict[str, str] = Field(min_length=1)
+    results_path: str | None = Field(
+        default=None,
+        description=(
+            "JMESPath into the raw response locating the elements array, for "
+            "envelopes that are neither a bare array nor {'data': [...]} (e.g. "
+            "'records' or 'result.records')."
+        ),
+    )
+    ts_format: str | None = Field(
+        default=None,
+        description=(
+            "strptime pattern for non-ISO timestamp strings (e.g. '%d/%m/%Y'). "
+            "Omit for ISO-8601 timestamps (parsed via datetime.fromisoformat)."
+        ),
+    )
 
 
 class PaginationSpec(StrictModel):
