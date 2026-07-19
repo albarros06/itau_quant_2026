@@ -49,6 +49,10 @@ resource_budgets:
   max_llm_calls: 200
   max_vendor_requests: 1000
 
+remediation:
+  max_retries: 3
+  backoff_seconds: 30
+
 git:
   proposal_branch_prefix: ops-proposal/
   operating_branch: main

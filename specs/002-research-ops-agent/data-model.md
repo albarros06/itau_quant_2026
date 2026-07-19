@@ -17,6 +17,7 @@ The root of `config/ops_agent.yaml`.
 | `llm` | `LlmConfig` | `api_key_env: str`, `model: str`. Credential by reference only (FR-001). |
 | `operating_schedule` | `OperatingSchedule` | See below. |
 | `resource_budgets` | `ResourceBudgetConfig` | See below. |
+| `remediation` | `RemediationConfig` | `max_retries: int = 3` (`>= 0`), `backoff_seconds: float = 30.0` (`> 0`). Bounds FR-008's automatic remediation attempts before escalation (research.md §10); required, non-hardcoded per Constitution Principle VI — the same "threshold lives in config" treatment 001 gives `data_quality.freshness_tolerance_days`. |
 | `git` | `GitConfig` | `proposal_branch_prefix: str = "ops-proposal/"`, `operating_branch: str = "main"`, `remote: str \| None`. |
 | `notifications` | `NotificationConfig` | `sink: Literal["file"] = "file"`, `path: Path = data/ops_agent/notifications.jsonl`. |
 

@@ -237,10 +237,12 @@ from having.
 
 **Decision**: When a scheduled `tick` finds required data stale or a vendor unreachable
 (FR-008), `ops_agent.remediation` retries the exact same 001 operation that would normally run —
-`orchestration.ingest.ingest_all` scoped to the affected provider/category — a small bounded
-number of times with backoff, logging each attempt. If freshness is restored, the cycle proceeds
-normally; if not, it escalates (§8) and does **not** trigger `run_cycle` on data 001 itself would
-deem unfit (001's own `Repository.assert_fresh` gate is the final word either way).
+`orchestration.ingest.ingest_all` scoped to the affected provider/category — up to
+`OpsAgentConfig.remediation.max_retries` times with `backoff_seconds` between attempts (both
+configured in `config/ops_agent.yaml`, never hardcoded — Constitution Principle VI), logging each
+attempt. If freshness is restored, the cycle proceeds normally; if not, it escalates (§8) and does
+**not** trigger `run_cycle` on data 001 itself would deem unfit (001's own `Repository.assert_fresh`
+gate is the final word either way).
 
 **Rationale**: Reuses 001's existing fetch/clean/quality path verbatim instead of duplicating any
 part of it inside `ops_agent` — consistent with the package-boundary decision (§2: `ops_agent`

@@ -105,12 +105,15 @@ exact defaults are a configuration concern (`config/ops_agent.yaml`), not fixed 
 **Result**: No violations. Complexity Tracking table is not needed (empty — no principle
 deviations to justify).
 
-*Post-Phase-1 re-check performed after data-model.md and contracts/ were written: the
-`declarative` connector and the `connector_kind` registry dispatch are the only additions inside
-`energy_research`; both stay within Principle I's existing seam and are additive/backward
-compatible (existing provider modules are unaffected). All `ops_agent` state (proposals index,
-activity log, budgets, schedule, descriptors) lives in the new `data/ops_agent.sqlite`, never in
-001's tables. **Result: still PASS, no changes.***
+*Post-Phase-1 re-check performed after data-model.md and contracts/ were written: `energy_research`
+receives two kinds of additive touch, both inside the `ingestion` layer Principle I already
+designates as the provider-swapping seam — the `declarative` connector + `connector_kind` registry
+dispatch (research.md §4), and an optional `discover()` method added to the three existing sample
+provider modules (research.md §5) so US1's discovery step has something concrete to probe. Neither
+changes any existing provider's current behavior (both are backward-compatible additions), and
+no other `energy_research` layer is touched. All `ops_agent` state (proposals index, activity log,
+budgets, schedule, descriptors) lives in the new `data/ops_agent.sqlite`, never in 001's tables.
+**Result: still PASS, no changes.***
 
 ## Project Structure
 
@@ -143,10 +146,14 @@ src/energy_research/                        # 001, unchanged research logic (thi
 │   ├── registry.py                          # + minimal connector_kind dispatch (python_module
 │   │                                         #   [default, unchanged behavior] | declarative)
 │   └── providers/
-│       └── declarative.py                    # NEW: one shared, config-driven connector
-│                                              #   implementing MarketDataConnector /
-│                                              #   QualitativeContextConnector from a Data
-│                                              #   Source Descriptor (FR-016/017)
+│       ├── declarative.py                    # NEW: one shared, config-driven connector
+│       │                                      #   implementing MarketDataConnector /
+│       │                                      #   QualitativeContextConnector from a Data
+│       │                                      #   Source Descriptor (FR-016/017)
+│       ├── sample_provider.py                 # + optional discover() (research.md §5); existing
+│       │                                      #   fetch_series/health_check behavior unchanged
+│       ├── secondary_market_provider.py        # + optional discover(), same terms
+│       └── qualitative_context_provider.py      # + optional discover(), same terms
 └── ...                                       # generation/screening/backtesting/critique/
                                                # reporting/datastore/orchestration: untouched
 
@@ -166,7 +173,10 @@ src/ops_agent/                                # NEW package (this feature)
 │   └── interpret.py                            # LLM structured-output call: catalog/evidence ->
 │                                              #   draft ProvisioningProposal / DataSourceDescriptor
 ├── proposals/
-│   ├── models.py                               # ProvisioningProposal, ApprovalDecision (pydantic)
+│   ├── models.py                               # ProvisioningProposal (pydantic); approval/
+│   │                                            #   rejection is a status transition on this model,
+│   │                                            #   not a separate ApprovalDecision entity
+│   │                                            #   (data-model.md ApprovalDecision)
 │   └── git_store.py                            # branch/commit/diff via `git` subprocess;
 │                                              #   approve/reject helpers (run as the human's own
 │                                              #   git identity, never the agent's)
@@ -178,7 +188,9 @@ src/ops_agent/                                # NEW package (this feature)
 ├── budget.py                                    # per-period usage guard around discretionary
 │                                              #   LLM calls and vendor discovery/probe requests
 ├── remediation.py                                # bounded retry of energy_research.orchestration
-│                                              #   .ingest before escalating (FR-008)
+│                                              #   .ingest before escalating; retry count/backoff
+│                                              #   read from OpsAgentConfig.remediation, never a
+│                                              #   hardcoded constant (Principle VI, FR-008)
 ├── notify.py                                     # shortlist + escalation + budget-exhaustion
 │                                              #   sink: JSONL file + log line (research.md §7)
 ├── agent.py                                       # tick(): orchestrates the above, single pass
@@ -220,10 +232,10 @@ uv.lock
 is the only new package; it may import from `energy_research` (its CLI-equivalent entry points,
 config loader, and read-only repository/report access) but `energy_research` has zero awareness
 of `ops_agent`'s existence, mirroring exactly how `orchestration` is 001's sole integration point
-for its own five analysis layers. The one deliberate touch inside `energy_research` — the
-declarative connector and the registry's `connector_kind` dispatch — lives inside the `ingestion`
-layer precisely because Principle I already designates that layer as the provider-swapping seam;
-no other 001 layer changes.
+for its own five analysis layers. Both deliberate touches inside `energy_research` — the
+declarative connector plus the registry's `connector_kind` dispatch, and the sample providers'
+optional `discover()` methods — live inside the `ingestion` layer precisely because Principle I
+already designates that layer as the provider-swapping seam; no other 001 layer changes.
 
 ## Complexity Tracking
 
