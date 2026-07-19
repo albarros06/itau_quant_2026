@@ -58,8 +58,9 @@ refinement:
   max_lineages_per_run: 5
 
 generation:
-  backend: deterministic_stub # or: anthropic
-  anthropic_model: claude-opus-4-8
+  backend: deterministic_stub # or: anthropic | gemini
+  model: claude-opus-4-8 # e.g. gemini-2.5-flash if backend: gemini
+  api_key_env: ANTHROPIC_API_KEY # e.g. GEMINI_API_KEY if backend: gemini
   max_theses_per_cycle: 5
 
 reproducibility:

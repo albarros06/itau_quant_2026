@@ -37,8 +37,8 @@ class GenerationService:
         self._config = config
         backend = build_backend(
             config.generation.backend,
-            config.generation.anthropic_model,
-            config.generation.anthropic_api_key_env,
+            config.generation.model,
+            config.generation.api_key_env,
         )
         self._client = ThesisLLMClient(backend)
 

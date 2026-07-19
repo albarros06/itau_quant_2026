@@ -16,6 +16,7 @@ from pathlib import Path
 
 import yaml
 
+from energy_research.common.llm import StructuredBackend
 from energy_research.config.settings import PipelineConfig, load_config
 from energy_research.datastore.repository import StaleDataError
 from energy_research.ingestion import registry
@@ -81,7 +82,16 @@ class OpsAgent:
         self.notify_sink = build_sink(config.notifications.sink, config.notifications.path)
         self.budget_guard = BudgetGuard(config.resource_budgets, self.repo, self.notify_sink)
         self.git_store = GitStore(self.repo_dir, config.git, self.repo)
-        self.llm_backend = build_llm_backend(config.llm)
+        self._llm_backend: StructuredBackend | None = None
+
+    @property
+    def llm_backend(self) -> StructuredBackend:
+        """Built lazily: only ``bootstrap()``/``onboard()`` need it, and commands
+        that don't (``tick``/``approve``/``reject``/``status``/``log``) must not
+        require LLM credentials just to run."""
+        if self._llm_backend is None:
+            self._llm_backend = build_llm_backend(self.config.llm)
+        return self._llm_backend
 
     def close(self) -> None:
         self.repo.close()

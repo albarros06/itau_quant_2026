@@ -1,10 +1,10 @@
 """LLM backend selection for ops_agent's own structured tasks.
 
 Reuses ``energy_research.common.llm``'s transport (``StructuredRequest`` ->
-validated JSON payload, ``AnthropicStructuredBackend``) for the ``anthropic``
-backend — the same transport generation/critique use (contracts/
-ops-agent-boundary.md). ``ops_agent`` never imports generation/critique
-themselves to get it.
+validated JSON payload, ``AnthropicStructuredBackend``/``GeminiStructuredBackend``)
+for the ``anthropic``/``gemini`` backends — the same transport generation/critique
+use (contracts/ops-agent-boundary.md). ``ops_agent`` never imports generation/
+critique themselves to get it.
 
 The ``deterministic_stub`` backend is ops_agent's own — 001's stub only knows the
 ``thesis_generation``/``critique`` tasks, not ops_agent's ``provisioning_draft``/
@@ -17,7 +17,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from energy_research.common.llm import AnthropicStructuredBackend, StructuredBackend
+from energy_research.common.llm import (
+    AnthropicStructuredBackend,
+    GeminiStructuredBackend,
+    StructuredBackend,
+)
 from ops_agent.config import LlmConfig
 
 
@@ -134,4 +138,6 @@ def build_llm_backend(config: LlmConfig) -> StructuredBackend:
         return DeterministicOpsBackend()
     if config.backend == "anthropic":
         return AnthropicStructuredBackend(model=config.model, api_key_env=config.api_key_env)
+    if config.backend == "gemini":
+        return GeminiStructuredBackend(model=config.model, api_key_env=config.api_key_env)
     raise ValueError(f"unknown LLM backend {config.backend!r}")

@@ -37,8 +37,8 @@ class CritiqueService:
         self._config = config
         self._backend = build_backend(
             config.generation.backend,
-            config.generation.anthropic_model,
-            config.generation.anthropic_api_key_env,
+            config.generation.model,
+            config.generation.api_key_env,
         )
 
     def critique_thesis(
