@@ -71,7 +71,11 @@ def run_cycle(config: PipelineConfig, seed: int | None = None) -> CycleResult:
         seed = secrets.randbits(31)  # auto-generated, recorded on the cycle (FR-029)
     seed_mod.set_seed(seed)
 
-    repo = Repository(config.datastore.db_path, config.datastore.lake_dir)
+    repo = Repository(
+        config.datastore.db_path,
+        config.datastore.lake_dir,
+        config.data_quality.max_cross_series_gap_days,
+    )
     ledger = EvaluationLedger(config.datastore.db_path)
     try:
         # Refuse to start on stale/missing data, before any state is created (FR-006).
@@ -232,7 +236,11 @@ def replay_cycle(config: PipelineConfig, cycle_id: str) -> CycleResult:
     the original's shortlist and verdicts."""
     from energy_research.config.settings import config_from_snapshot
 
-    repo = Repository(config.datastore.db_path, config.datastore.lake_dir)
+    repo = Repository(
+        config.datastore.db_path,
+        config.datastore.lake_dir,
+        config.data_quality.max_cross_series_gap_days,
+    )
     try:
         recorded = repo.get_cycle(cycle_id)
     finally:

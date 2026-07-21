@@ -66,6 +66,11 @@ class DataQualityConfig(StrictModel):
     freshness_tolerance_days: float = Field(gt=0)
     max_gap_days: int = Field(default=7, gt=0)
     outlier_zscore_threshold: float = Field(default=8.0, gt=0)
+    # Max number of dates inside a split's cross-instrument overlap window where a
+    # required instrument may be missing before a split read refuses. Below it, the
+    # misaligned rows are dropped and the count is surfaced; at/above it the read
+    # fails loud rather than silently backtesting on a thinned, gap-stitched panel.
+    max_cross_series_gap_days: int = Field(default=3, ge=0)
 
 
 class SplitsConfig(StrictModel):
