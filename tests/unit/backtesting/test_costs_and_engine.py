@@ -28,19 +28,42 @@ def make_data(split_type="refinement", n=100, drift=0.002):
     )
 
 
+def always_in(n_days: int):
+    """Unconditional always-in accounting: one entry, one closing exit, full window."""
+    return {"entries": 1, "exits": 1, "in_market_days": n_days}
+
+
 class TestCostModel:
     def test_breakdown_arithmetic(self):
-        costs = CostModel(make_config()).compute(n_legs=1, n_days=252)
+        # Unconditional case reproduces the pre-003 constants exactly (FR-012, SC-006).
+        costs = CostModel(make_config()).compute(n_legs=1, **always_in(252))
         assert costs.transaction_costs == pytest.approx(2 * 10 / 1e4)
         assert costs.slippage == pytest.approx(2 * 5 / 1e4)
         assert costs.financing_carry == pytest.approx(0.126)
         assert costs.total == pytest.approx(0.002 + 0.001 + 0.126)
 
     def test_spread_doubles_traded_notional(self):
-        one = CostModel(make_config()).compute(n_legs=1, n_days=10)
-        two = CostModel(make_config()).compute(n_legs=2, n_days=10)
+        one = CostModel(make_config()).compute(n_legs=1, **always_in(10))
+        two = CostModel(make_config()).compute(n_legs=2, **always_in(10))
         assert two.transaction_costs == pytest.approx(2 * one.transaction_costs)
         assert two.financing_carry == pytest.approx(one.financing_carry)
+
+    def test_costs_recoverable_from_persisted_activity(self):
+        """A persisted result's entries/exits/in_market_days reproduce its costs
+        exactly by re-running compute (SC-004, turnover-cost-contract.md rule 4)."""
+        result = run_backtest(
+            make_data(), {"instruments": ["X"], "direction": "long"}, CostModel(make_config())
+        )
+        om = result.other_metrics
+        recomputed = CostModel(make_config()).compute(
+            n_legs=1,
+            entries=om["entries"],
+            exits=om["exits"],
+            in_market_days=om["in_market_days"],
+        )
+        assert recomputed.transaction_costs == pytest.approx(result.transaction_costs)
+        assert recomputed.slippage == pytest.approx(result.slippage)
+        assert recomputed.financing_carry == pytest.approx(result.financing_carry)
 
 
 class TestEngine:

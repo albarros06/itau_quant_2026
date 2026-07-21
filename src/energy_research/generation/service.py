@@ -88,7 +88,12 @@ class GenerationService:
             lineage_id = self._repo.create_lineage(cycle_id, root_thesis_id=thesis_id)
             self._ledger.create(lineage_id)
         try:
-            draft = validate_draft(payload, self._config.universe_keys)
+            draft = validate_draft(
+                payload,
+                self._config.universe_keys,
+                max_clauses=self._config.conditional_screening.max_clauses,
+                max_lookback_days=self._config.conditional_screening.max_lookback_days,
+            )
         except DraftRejection as exc:
             raw_rationale = ""
             raw_hypothesis: dict = {}

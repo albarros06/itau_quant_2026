@@ -17,7 +17,7 @@ def valid_payload() -> dict:
             "instruments": ["BR_POWER_SE_FWD_M1"],
             "direction": "long",
             "horizon": "1M",
-            "condition": "SE/CO reservoir level below its seasonal median",
+            "condition": None,
             "testable_claim": "Front-month forward returns are positively drifting under "
             "the stated condition.",
         },
@@ -69,7 +69,16 @@ def test_rejects_out_of_universe_instrument():
 def test_rejects_spread_with_single_instrument():
     payload = valid_payload()
     payload["hypothesis"]["direction"] = "spread"
-    with pytest.raises(DraftRejection, match="requires at least two instruments"):
+    with pytest.raises(DraftRejection, match="requires exactly two instruments"):
+        validate_draft(payload, UNIVERSE)
+
+
+def test_rejects_free_text_condition():
+    """The pre-003 free-text condition is gone: a string is a schema failure, not
+    silently accepted (contracts/conditional-signal-contract.md rule 1)."""
+    payload = valid_payload()
+    payload["hypothesis"]["condition"] = "reservoir below median"
+    with pytest.raises(DraftRejection, match="schema validation failed"):
         validate_draft(payload, UNIVERSE)
 
 

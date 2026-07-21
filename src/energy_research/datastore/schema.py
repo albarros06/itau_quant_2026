@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS screening_results (
     adjusted_threshold  REAL NOT NULL,
     verdict             TEXT NOT NULL CHECK (verdict IN ('pass', 'fail')),
     reason              TEXT NOT NULL,
+    other_metrics       TEXT NOT NULL DEFAULT '{}',
     evaluated_at        TEXT NOT NULL
 );
 
@@ -155,4 +156,21 @@ CREATE TABLE IF NOT EXISTS research_reports (
 
 def create_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(DDL)
+    _migrate_screening_results_other_metrics(conn)
     conn.commit()
+
+
+def _migrate_screening_results_other_metrics(conn: sqlite3.Connection) -> None:
+    """Idempotently add screening_results.other_metrics to pre-003 databases.
+
+    Fresh databases already get the column from the CREATE TABLE above; this guarded
+    ALTER converges a database created before this feature to the same shape. It is
+    this codebase's first schema migration — deliberately one guarded statement, not
+    a migrations framework (research.md §5). A second such need would be the trigger
+    to reconsider that, not this one.
+    """
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(screening_results)")}
+    if "other_metrics" not in columns:
+        conn.execute(
+            "ALTER TABLE screening_results ADD COLUMN other_metrics TEXT NOT NULL DEFAULT '{}'"
+        )

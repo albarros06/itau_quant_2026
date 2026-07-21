@@ -14,6 +14,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from energy_research.backtesting.costs import TRADING_DAYS_PER_YEAR, CostModel
+from energy_research.common.conditions import condition_from_hypothesis
 from energy_research.common.signals import hypothesis_returns
 from energy_research.datastore.repository import SplitScopedData
 
@@ -41,7 +42,8 @@ def run_backtest(
         )
     instruments = hypothesis["instruments"]
     direction = hypothesis["direction"]
-    returns = hypothesis_returns(data.prices, instruments, direction)
+    condition = condition_from_hypothesis(hypothesis)
+    returns, activity = hypothesis_returns(data.prices, instruments, direction, condition)
     n_days = len(returns)
     if n_days == 0:
         raise ValueError(f"no {data.split_type}-split observations for instruments {instruments}")
@@ -57,8 +59,13 @@ def run_backtest(
         )
 
     gross = float(returns.sum())
-    n_legs = 2 if direction in ("spread", "relative_value") else 1
-    costs = cost_model.compute(n_legs=n_legs, n_days=n_days)
+    n_legs = 2 if direction in ("spread", "relative_value") else len(instruments)
+    costs = cost_model.compute(
+        n_legs=n_legs,
+        entries=activity.entries,
+        exits=activity.exits,
+        in_market_days=activity.in_market_days,
+    )
     net = gross - costs.total
 
     daily = returns.to_numpy(dtype=float)
@@ -80,5 +87,6 @@ def run_backtest(
             "n_days": n_days,
             "date_range": list(data.date_range),
             "any_synthetic_input": data.any_synthetic,
+            **activity.as_dict(),
         },
     )

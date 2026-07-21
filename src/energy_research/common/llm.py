@@ -262,10 +262,11 @@ class DeterministicStubBackend:
                         "instruments": [inst["key"]],
                         "direction": direction,
                         "horizon": "refinement_window",
-                        "condition": (
-                            f"{inst['key']} continues the drift regime observed in the "
-                            "discovery window"
-                        ),
+                        # Unconditional (always in-market): the structured condition
+                        # vocabulary (003) is exercised by real LLM backends and the
+                        # planted-signal fixtures; the offline stub stays on the
+                        # regression-locked unconditional path (FR-012, SC-006).
+                        "condition": None,
                         "testable_claim": (
                             f"Mean daily {direction} return of {inst['key']} is positive "
                             "and statistically distinguishable from zero."
