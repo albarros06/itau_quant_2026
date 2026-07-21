@@ -31,10 +31,13 @@ def _write_pipeline_seed(repo_dir, *, freshness_tolerance_days: float = 7) -> No
 
     default_yaml = {
         "providers_file": "providers.yaml",
+        # Absolute paths under the tmp repo: relative paths would resolve against
+        # pytest's CWD and write test data into the REAL data/ directory (see
+        # tests/integration/conftest.py note).
         "datastore": {
-            "db_path": "data/research.sqlite",
-            "lake_dir": "data/lake",
-            "reports_dir": "data/reports",
+            "db_path": str(repo_dir / "data" / "research.sqlite"),
+            "lake_dir": str(repo_dir / "data" / "lake"),
+            "reports_dir": str(repo_dir / "data" / "reports"),
         },
         "instrument_universe": [
             {"key": "BR_POWER_SE_SPOT", "category": "spot", "description": "seed instrument"},

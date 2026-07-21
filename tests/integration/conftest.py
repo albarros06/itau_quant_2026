@@ -20,6 +20,11 @@ from ops_agent.config import OpsAgentConfig
 RESEARCHER_NAME = "Researcher"
 RESEARCHER_EMAIL = "researcher@example.com"
 
+# NOTE: datastore paths are placeholders — the fixture rewrites them to ABSOLUTE
+# paths under the tmp repo. Relative paths here resolve against pytest's CWD (the
+# project root) at Repository() time, so a suite run would silently write test
+# series/cycles into the REAL data/ directory (observed: sample_provider and
+# new_vendor rows appearing in data/research.sqlite at full-suite timestamps).
 DEFAULT_YAML_SEED = {
     "providers_file": "providers.yaml",
     "datastore": {
@@ -79,7 +84,15 @@ def ops_agent_repo(tmp_path) -> tuple[Path, OpsAgentConfig]:
 
     config_dir = repo_dir / "config"
     config_dir.mkdir()
-    (config_dir / "default.yaml").write_text(yaml.safe_dump(DEFAULT_YAML_SEED, sort_keys=False))
+    seed = {
+        **DEFAULT_YAML_SEED,
+        "datastore": {
+            "db_path": str(repo_dir / "data" / "research.sqlite"),
+            "lake_dir": str(repo_dir / "data" / "lake"),
+            "reports_dir": str(repo_dir / "data" / "reports"),
+        },
+    }
+    (config_dir / "default.yaml").write_text(yaml.safe_dump(seed, sort_keys=False))
     (config_dir / "providers.yaml").write_text(
         yaml.safe_dump(PROVIDERS_YAML_SEED, sort_keys=False)
     )
