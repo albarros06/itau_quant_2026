@@ -61,6 +61,18 @@ class _EndpointSpec(_StrictModel):
     # mean), e.g. ONS's semi-hourly CMO -> the standard daily-average figure.
     # None preserves observations exactly as the provider publishes them.
     aggregate: Literal["daily_mean"] | None = None
+    # [floor, ceiling] applied to every mapped value (either bound may be null).
+    # For proxy construction where the target series is a regulatory clamp of the
+    # source (PLD = CMO bounded by ANEEL's yearly floor/ceiling) — also prevents
+    # zero-price pathologies in percent-return math downstream. The clamp is part
+    # of the declared descriptor, never a silent correction (Principle VII).
+    value_clamp: tuple[float | None, float | None] | None = None
+    # provider-native instrument value -> canonical instrument_key, for responses
+    # that interleave SEVERAL instruments in one payload (ONS files carry all four
+    # submarkets: {SE: BR_POWER_SE_SPOT, S: BR_POWER_S_SPOT, ...}). When set,
+    # fetch_series keeps only the rows whose translated key matches the requested
+    # instrument; unmapped values are dropped, never guessed (Principle IV).
+    instrument_key_map: dict[str, str] | None = None
 
 
 class _PaginationSpec(_StrictModel):
@@ -85,6 +97,9 @@ class DataSourceDescriptor(_StrictModel):
     base_url: str
     endpoints: list[_EndpointSpec] = Field(min_length=1)
     pagination: _PaginationSpec = _PaginationSpec()
+    # HTTP timeout per request. Some public APIs generate multi-year extracts
+    # server-side and legitimately take >30s (observed: BACEN SGS ~30s).
+    timeout_seconds: float = Field(default=30.0, gt=0)
 
 
 class CredentialError(RuntimeError):
@@ -160,15 +175,27 @@ class DeclarativeConnector:
     ):
         self._descriptor = descriptor
         self.provider_id = descriptor.provider_id
-        self._client = httpx.Client(base_url=descriptor.base_url, timeout=30.0, transport=transport)
-
-    def _endpoint_for(self, category: str) -> _EndpointSpec:
-        for ep in self._descriptor.endpoints:
-            if ep.category == category:
-                return ep
-        raise UnsupportedCategoryError(
-            f"{self.provider_id}: no endpoint configured for category {category!r}"
+        self._client = httpx.Client(
+            base_url=descriptor.base_url,
+            timeout=descriptor.timeout_seconds,
+            transport=transport,
         )
+        # Per-instance memo of unpaginated GET payloads, keyed by rendered path.
+        # A multi-instrument endpoint (instrument_key_map) is fetched once per
+        # ingest run, not once per instrument — the connector lives only for the
+        # run, so there is no staleness window.
+        self._payload_cache: dict[str, Any] = {}
+
+    def _endpoints_for(self, category: str) -> list[_EndpointSpec]:
+        """ALL endpoints configured for a category, in descriptor order. A vendor
+        that shards one series across several resources (e.g. ONS's one-CSV-per-
+        year S3 files) declares one endpoint per shard; fetch concatenates them."""
+        endpoints = [ep for ep in self._descriptor.endpoints if ep.category == category]
+        if not endpoints:
+            raise UnsupportedCategoryError(
+                f"{self.provider_id}: no endpoint configured for category {category!r}"
+            )
+        return endpoints
 
     def _headers(self) -> dict[str, str]:
         if self._descriptor.credential is None:
@@ -206,7 +233,10 @@ class DeclarativeConnector:
         elements: list[Any] = []
 
         if pagination.mode == "none":
-            payload = self._request(endpoint, path_params, {})
+            cache_key = endpoint.path_template.format(**path_params)
+            if cache_key not in self._payload_cache:
+                self._payload_cache[cache_key] = self._request(endpoint, path_params, {})
+            payload = self._payload_cache[cache_key]
             return self._filtered(endpoint, _elements_of(payload, endpoint.results_path))
 
         if pagination.mode == "offset":
@@ -249,48 +279,64 @@ class DeclarativeConnector:
     def fetch_series(
         self, category: str, instrument_key: str, since: datetime | None = None
     ) -> list[RawObservation]:
-        endpoint = self._endpoint_for(category)
-        elements = self._fetch_all_elements(endpoint, {"instrument_key": instrument_key})
-        mapping = endpoint.field_mapping
         observations: list[RawObservation] = []
-        for element in elements:
-            ts_raw = jmespath.search(mapping["ts"], element)
-            ts = _parse_ts(ts_raw, endpoint.ts_format)
-            if since is not None and ts <= since:
-                continue
-            observations.append(
-                RawObservation(
-                    category=category,
-                    instrument_key=jmespath.search(mapping["instrument_key"], element)
-                    or instrument_key,
-                    ts=ts,
-                    value=float(jmespath.search(mapping["value"], element)),
-                    provenance=jmespath.search(mapping["provenance"], element) or "real",
+        for endpoint in self._endpoints_for(category):
+            elements = self._fetch_all_elements(endpoint, {"instrument_key": instrument_key})
+            mapping = endpoint.field_mapping
+            batch: list[RawObservation] = []
+            for element in elements:
+                mapped_key = jmespath.search(mapping["instrument_key"], element)
+                if endpoint.instrument_key_map is not None:
+                    # Multi-instrument response: translate the provider-native
+                    # value and keep only the requested instrument's rows.
+                    mapped_key = endpoint.instrument_key_map.get(mapped_key)
+                    if mapped_key != instrument_key:
+                        continue
+                ts_raw = jmespath.search(mapping["ts"], element)
+                ts = _parse_ts(ts_raw, endpoint.ts_format)
+                if since is not None and ts <= since:
+                    continue
+                value = float(jmespath.search(mapping["value"], element))
+                if endpoint.value_clamp is not None:
+                    lo, hi = endpoint.value_clamp
+                    if lo is not None:
+                        value = max(value, lo)
+                    if hi is not None:
+                        value = min(value, hi)
+                batch.append(
+                    RawObservation(
+                        category=category,
+                        instrument_key=mapped_key or instrument_key,
+                        ts=ts,
+                        value=value,
+                        provenance=jmespath.search(mapping["provenance"], element) or "real",
+                    )
                 )
-            )
-        if endpoint.aggregate == "daily_mean":
-            observations = _daily_mean(observations)
+            if endpoint.aggregate == "daily_mean":
+                batch = _daily_mean(batch)
+            observations.extend(batch)
+        observations.sort(key=lambda o: (o.instrument_key, o.ts))
         return observations
 
     def fetch_context(self, category: str, since: datetime | None = None) -> list[RawContextDoc]:
-        endpoint = self._endpoint_for(category)
-        elements = self._fetch_all_elements(endpoint, {})
-        mapping = endpoint.field_mapping
         docs: list[RawContextDoc] = []
-        for element in elements:
-            ts_raw = jmespath.search(mapping["ts"], element)
-            ts = _parse_ts(ts_raw, endpoint.ts_format)
-            if since is not None and ts <= since:
-                continue
-            docs.append(
-                RawContextDoc(
-                    category=category,
-                    source=jmespath.search(mapping["source"], element) or self.provider_id,
-                    ts=ts,
-                    text=jmespath.search(mapping["text"], element),
-                    provenance=jmespath.search(mapping["provenance"], element) or "real",
+        for endpoint in self._endpoints_for(category):
+            elements = self._fetch_all_elements(endpoint, {})
+            mapping = endpoint.field_mapping
+            for element in elements:
+                ts_raw = jmespath.search(mapping["ts"], element)
+                ts = _parse_ts(ts_raw, endpoint.ts_format)
+                if since is not None and ts <= since:
+                    continue
+                docs.append(
+                    RawContextDoc(
+                        category=category,
+                        source=jmespath.search(mapping["source"], element) or self.provider_id,
+                        ts=ts,
+                        text=jmespath.search(mapping["text"], element),
+                        provenance=jmespath.search(mapping["provenance"], element) or "real",
+                    )
                 )
-            )
         return docs
 
     def health_check(self) -> ConnectorHealth:

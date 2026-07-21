@@ -371,6 +371,47 @@ def test_daily_mean_aggregation_collapses_subdaily_rows():
     assert observations[1].ts.day == 2
 
 
+def test_multiple_endpoints_per_category_concatenate_in_order():
+    """A vendor that shards one series across several resources (ONS's one-CSV-
+    per-year S3 files) declares one endpoint per shard under the SAME category;
+    fetch_series concatenates all shards, sorted by timestamp."""
+    descriptor = {
+        "provider_id": "sharded_vendor",
+        "base_url": "https://opendata.example.test",
+        "endpoints": [
+            {
+                "category": "hydrology",
+                "path_template": f"/dataset/ear/EAR_{year}.csv",
+                "response_format": "csv",
+                "field_mapping": {
+                    "instrument_key": '`"BR_HYDRO_SE_RESERVOIR"`',
+                    "ts": "ear_data",
+                    "value": "pct",
+                    "provenance": '`"real"`',
+                },
+            }
+            for year in (2025, 2026)
+        ],
+        "pagination": {"mode": "none"},
+    }
+    bodies = {
+        "/dataset/ear/EAR_2025.csv": "ear_data;pct\n2025-12-30;50.0\n2025-12-31;51.0\n",
+        "/dataset/ear/EAR_2026.csv": "ear_data;pct\n2026-01-01;52.0\n",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=bodies[request.url.path].encode())
+
+    connector = DeclarativeConnector(
+        DataSourceDescriptor.model_validate(descriptor),
+        transport=httpx.MockTransport(handler),
+    )
+    observations = connector.fetch_series("hydrology", "BR_HYDRO_SE_RESERVOIR")
+
+    assert [o.value for o in observations] == [50.0, 51.0, 52.0]
+    assert observations[0].ts.year == 2025 and observations[-1].ts.year == 2026
+
+
 def test_configured_credential_still_raises_when_env_missing(monkeypatch):
     """Optional-credential support must not weaken contract rule 1: a credential
     that IS configured but cannot resolve raises — only an explicitly absent
@@ -403,3 +444,91 @@ def test_health_check_reports_missing_credential_without_raising(monkeypatch):
     health = connector.health_check()
     assert health.ok is False
     assert "FIXTURE_VENDOR_API_KEY" in health.detail
+
+
+def test_value_clamp_bounds_mapped_values():
+    """value_clamp=[floor, ceiling] applies the declared regulatory band to every
+    mapped value — the PLD-proxy construction (PLD = CMO clamped to ANEEL's
+    yearly floor/ceiling), which also prevents zero-price return blowups."""
+    descriptor = {
+        "provider_id": "clamped_vendor",
+        "base_url": "https://opendata.example.test",
+        "endpoints": [
+            {
+                "category": "spot",
+                "path_template": "/cmo.csv",
+                "response_format": "csv",
+                "value_clamp": [39.68, 559.75],
+                "field_mapping": {
+                    "instrument_key": '`"BR_POWER_SE_SPOT"`',
+                    "ts": "d",
+                    "value": "v",
+                    "provenance": '`"real"`',
+                },
+            }
+        ],
+        "pagination": {"mode": "none"},
+    }
+    body = "d;v\n2020-01-01;0.0\n2020-01-02;150.0\n2020-01-03;2000.0\n"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body.encode())
+
+    connector = DeclarativeConnector(
+        DataSourceDescriptor.model_validate(descriptor),
+        transport=httpx.MockTransport(handler),
+    )
+    observations = connector.fetch_series("spot", "BR_POWER_SE_SPOT")
+    assert [o.value for o in observations] == [39.68, 150.0, 559.75]
+
+
+def test_instrument_key_map_filters_and_caches_multi_instrument_responses():
+    """One ONS file carries all four submarkets: instrument_key_map translates
+    provider-native codes to canonical keys and fetch_series keeps only the
+    requested instrument's rows. The payload is fetched ONCE per path per
+    connector instance, not once per instrument."""
+    descriptor = {
+        "provider_id": "multi_instrument_vendor",
+        "base_url": "https://opendata.example.test",
+        "endpoints": [
+            {
+                "category": "spot",
+                "path_template": "/cmo.csv",
+                "response_format": "csv",
+                "instrument_key_map": {
+                    "SE": "BR_POWER_SE_SPOT",
+                    "NE": "BR_POWER_NE_SPOT",
+                },
+                "field_mapping": {
+                    "instrument_key": "id_subsistema",
+                    "ts": "d",
+                    "value": "v",
+                    "provenance": '`"real"`',
+                },
+            }
+        ],
+        "pagination": {"mode": "none"},
+    }
+    body = (
+        "id_subsistema;d;v\n"
+        "SE;2026-01-01;100.0\n"
+        "NE;2026-01-01;200.0\n"
+        "S ;2026-01-01;300.0\n"  # unmapped (padded) code: dropped, never guessed
+    )
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(200, content=body.encode())
+
+    connector = DeclarativeConnector(
+        DataSourceDescriptor.model_validate(descriptor),
+        transport=httpx.MockTransport(handler),
+    )
+    se = connector.fetch_series("spot", "BR_POWER_SE_SPOT")
+    ne = connector.fetch_series("spot", "BR_POWER_NE_SPOT")
+
+    assert [o.value for o in se] == [100.0]
+    assert se[0].instrument_key == "BR_POWER_SE_SPOT"
+    assert [o.value for o in ne] == [200.0]
+    assert calls["n"] == 1  # second instrument served from the payload cache

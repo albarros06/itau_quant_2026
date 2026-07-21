@@ -9,26 +9,50 @@ datastore:
   lake_dir: data/lake
   reports_dir: data/reports
 
+# All four ONS submarkets (SE/CO, S, NE, N): spot (CMO->PLD proxy), reservoir
+# (EAR % of max), and inflow (ENA % of long-term mean) — cross-submarket
+# relative-value is the classic BR power trade. Proxy caveats in providers.yaml.
+# NOTE: BR_POWER_SE_FWD_M1/M3 (power forwards) were removed 2026-07-21: no free
+# public source exists (BR power forwards trade OTC), and their synthetic sample
+# series only produced synthetic-labeled theses that crowded out the real
+# instruments. Restore from git history if a real forward source is onboarded.
 instrument_universe:
   - key: BR_POWER_SE_SPOT
     category: spot
-    description: >-
-      SE/CO daily spot power price. Currently ONS CMO daily mean (real), a labeled
-      PROXY for the official CCEE PLD while dadosabertos.ccee.org.br is under a
-      maintenance block — see config/providers.yaml header.
-  - key: BR_POWER_SE_FWD_M1
-    category: forward_curve
-    description: >-
-      SE/CO front-month forward power price (SYNTHETIC sample data — no free
-      public source exists for BR power forwards)
-  - key: BR_POWER_SE_FWD_M3
-    category: forward_curve
-    description: >-
-      SE/CO 3-month forward power price (SYNTHETIC sample data — no free public
-      source exists for BR power forwards)
+    description: SE/CO daily spot power price (ONS CMO daily mean, PLD-proxy, real)
+  - key: BR_POWER_S_SPOT
+    category: spot
+    description: South daily spot power price (ONS CMO daily mean, PLD-proxy, real)
+  - key: BR_POWER_NE_SPOT
+    category: spot
+    description: Northeast daily spot power price (ONS CMO daily mean, PLD-proxy, real)
+  - key: BR_POWER_N_SPOT
+    category: spot
+    description: North daily spot power price (ONS CMO daily mean, PLD-proxy, real)
   - key: BR_HYDRO_SE_RESERVOIR
     category: hydrology
     description: SE/CO aggregate reservoir level, % of max stored energy (ONS EAR, real)
+  - key: BR_HYDRO_S_RESERVOIR
+    category: hydrology
+    description: South aggregate reservoir level, % of max stored energy (ONS EAR, real)
+  - key: BR_HYDRO_NE_RESERVOIR
+    category: hydrology
+    description: Northeast aggregate reservoir level, % of max stored energy (ONS EAR, real)
+  - key: BR_HYDRO_N_RESERVOIR
+    category: hydrology
+    description: North aggregate reservoir level, % of max stored energy (ONS EAR, real)
+  - key: BR_ENA_SE_MLT
+    category: inflow
+    description: SE/CO inflow energy (ENA bruta) as % of long-term mean (ONS, real)
+  - key: BR_ENA_S_MLT
+    category: inflow
+    description: South inflow energy (ENA bruta) as % of long-term mean (ONS, real)
+  - key: BR_ENA_NE_MLT
+    category: inflow
+    description: Northeast inflow energy (ENA bruta) as % of long-term mean (ONS, real)
+  - key: BR_ENA_N_MLT
+    category: inflow
+    description: North inflow energy (ENA bruta) as % of long-term mean (ONS, real)
   - key: BR_DI_1Y
     category: interest_rate
     description: >-
@@ -69,7 +93,14 @@ refinement:
 generation:
   backend: gemini # or: deterministic_stub | anthropic
   model: gemini-2.5-flash # gemini-2.5-flash-lite is no longer available to new API keys
-  api_key_env: GEMINI_API_KEY
+  # Vertex AI mode (Google Cloud credits) instead of the Developer API key.
+  # Auth = Application Default Credentials: run `gcloud auth application-default login`
+  # once (or set GOOGLE_APPLICATION_CREDENTIALS to a service-account JSON).
+  # gcp_project may stay null if GOOGLE_CLOUD_PROJECT is exported instead.
+  vertexai: true
+  gcp_project: null # <- set your Google Cloud project ID here
+  gcp_location: global
+  api_key_env: GEMINI_API_KEY # used only when vertexai is false
   max_theses_per_cycle: 5
 
 reproducibility:

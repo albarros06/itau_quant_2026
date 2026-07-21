@@ -28,7 +28,7 @@ from ops_agent.config import LlmConfig
 def _provisioning_draft_payload(ctx: dict[str, Any]) -> dict[str, Any]:
     provider_id: str = ctx["provider_id"]
     entries: list[dict[str, Any]] = ctx.get("entries", [])
-    market_categories = {"spot", "forward_curve", "hydrology", "interest_rate", "fx"}
+    market_categories = {"spot", "forward_curve", "hydrology", "inflow", "interest_rate", "fx"}
     qualitative_categories = {"news", "hydrology_outlook", "macro_regime"}
 
     market_hints: dict[str, list[str]] = {}
@@ -139,5 +139,11 @@ def build_llm_backend(config: LlmConfig) -> StructuredBackend:
     if config.backend == "anthropic":
         return AnthropicStructuredBackend(model=config.model, api_key_env=config.api_key_env)
     if config.backend == "gemini":
-        return GeminiStructuredBackend(model=config.model, api_key_env=config.api_key_env)
+        return GeminiStructuredBackend(
+            model=config.model,
+            api_key_env=config.api_key_env,
+            vertexai=config.vertexai,
+            gcp_project=config.gcp_project,
+            gcp_location=config.gcp_location,
+        )
     raise ValueError(f"unknown LLM backend {config.backend!r}")

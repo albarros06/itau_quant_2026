@@ -1,30 +1,35 @@
-# Provider registry (Principle I / VI). Real open-data providers are wired via the
-# shared declarative connector — config only, no per-vendor code. All three real
-# sources are public (no credential block => no Authorization header sent).
+# Provider registry (Principle I / VI). Real open-data providers via the shared
+# declarative connector - config only, no per-vendor code. All sources public
+# (no credential block => no Authorization header sent).
+#
+# ALL FOUR submarkets (SE/CO, S, NE, N) are ingested from the same ONS files via
+# instrument_key_map (id_subsistema -> canonical key); each year-file downloads
+# once per run (connector payload cache), not once per instrument.
 #
 # Provenance & proxy notes (Principle IV):
-# - BR_POWER_SE_SPOT comes from ONS's CMO (Custo Marginal de Operação, SE/CO,
-#   semi-hourly aggregated to daily mean). CMO is the model input PLD is derived
-#   from, NOT the official CCEE PLD — used as a labeled proxy while CCEE's open-data
-#   portal (dadosabertos.ccee.org.br) is behind a maintenance block (403 since
-#   2026-07-19; see commit 726f054). Swap back to ccee_pld_media_diaria when it
-#   returns.
-# - BR_DI_1Y comes from BACEN SGS série 432 (Selic target) — a short-rate proxy for
-#   the 1y DI point, whose true source (B3 DI futures / ANBIMA ETTJ) has no free
-#   stable-URL JSON endpoint.
-# - Forward-curve series have NO free public source (power forwards trade OTC) and
-#   remain synthetic via sample_provider, labeled as such end to end.
-# - BACEN date note: SGS requires dataInicial (10y max per request) and 'ultimos/N'
-#   is capped at N=20, so the window starts 01/01/2026 — aligned with the ONS
-#   per-year 2026 files that bound the common range anyway. Omitting dataFinal
-#   means "through today".
+# - BR_POWER_*_SPOT: ONS CMO (semi-hourly -> daily mean), CLAMPED to ANEEL's
+#   yearly PLD floor / structural ceiling via value_clamp - the official PLD
+#   construction (PLD = CMO bounded by the regulatory band) applied to the
+#   public CMO feed. A labeled PROXY for CCEE's official PLD while
+#   dadosabertos.ccee.org.br is behind a maintenance block (403 since
+#   2026-07-19, commit 726f054). Yearly bands (R$/MWh, floor/structural
+#   ceiling), ANEEL:
+#     2020: 39.68/559.75   2021: 49.77/583.88   2022: 55.70/646.58
+#     2023: 69.04/678.29   2024: 58.60/751.73   2025: 58.60/751.73
+#     2026: 57.31/785.27
+#   (sources: gov.br/aneel news 2019-2025; canalsolar.com.br; megawhat.energy)
+# - BR_ENA_*_MLT: ONS ENA bruta as % of the long-term mean (MLT) - the standard
+#   inflow-anomaly measure and the leading indicator CMO responds to.
+# - BR_DI_1Y: BACEN SGS serie 432 (Selic target) - labeled proxy for the 1y DI
+#   vertex (no free stable-URL source for the B3 DI curve exists).
+# - Power forwards REMOVED (no free public source). See config/default.yaml.
+#
+# History window: 2020-01-01 -> today, bounded by ONS CMO's earliest S3
+# year-file (2020). One endpoint per year-file; the connector concatenates all
+# endpoints of a category. BACEN: ranges cap at 10y/request, 'ultimos/N' at
+# N=20; dataInicial 01/01/2020 fits one request; no dataFinal = through today.
 
 market_data:
-- provider_id: sample_provider
-  categories:
-  - forward_curve
-  options: {}
-
 - provider_id: bacen_sgs
   categories:
   - fx
@@ -35,9 +40,8 @@ market_data:
     base_url: https://api.bcb.gov.br
     endpoints:
     - category: fx
-      # SGS série 1: PTAX USD/BRL (venda), daily
-      path_template: /dados/serie/bcdata.sgs.1/dados?formato=json&dataInicial=01/01/2026
       method: GET
+      path_template: /dados/serie/bcdata.sgs.1/dados?formato=json&dataInicial=01/01/2020
       field_mapping:
         instrument_key: '`"BRL_USD_FX"`'
         ts: data
@@ -45,9 +49,8 @@ market_data:
         provenance: '`"real"`'
       ts_format: '%d/%m/%Y'
     - category: interest_rate
-      # SGS série 432: Meta Selic (Copom), daily — labeled proxy for BR_DI_1Y
-      path_template: /dados/serie/bcdata.sgs.432/dados?formato=json&dataInicial=01/01/2026
       method: GET
+      path_template: /dados/serie/bcdata.sgs.432/dados?formato=json&dataInicial=01/01/2020
       field_mapping:
         instrument_key: '`"BR_DI_1Y"`'
         ts: data
@@ -56,7 +59,7 @@ market_data:
       ts_format: '%d/%m/%Y'
     pagination:
       mode: none
-
+    timeout_seconds: 120
 - provider_id: ons_ear
   categories:
   - hydrology
@@ -66,42 +69,277 @@ market_data:
     base_url: https://ons-aws-prod-opendata.s3.amazonaws.com
     endpoints:
     - category: hydrology
-      # EAR Diário por Subsistema, % of max stored energy, SE/CO rows only
+      path_template: /dataset/ear_subsistema_di/EAR_DIARIO_SUBSISTEMA_2020.csv
+      method: GET
+      response_format: csv
+      instrument_key_map: &id001
+        SE: BR_HYDRO_SE_RESERVOIR
+        S: BR_HYDRO_S_RESERVOIR
+        NE: BR_HYDRO_NE_RESERVOIR
+        N: BR_HYDRO_N_RESERVOIR
+      field_mapping:
+        instrument_key: id_subsistema
+        ts: ear_data
+        value: ear_verif_subsistema_percentual
+        provenance: '`"real"`'
+    - category: hydrology
+      path_template: /dataset/ear_subsistema_di/EAR_DIARIO_SUBSISTEMA_2021.csv
+      method: GET
+      response_format: csv
+      instrument_key_map: *id001
+      field_mapping:
+        instrument_key: id_subsistema
+        ts: ear_data
+        value: ear_verif_subsistema_percentual
+        provenance: '`"real"`'
+    - category: hydrology
+      path_template: /dataset/ear_subsistema_di/EAR_DIARIO_SUBSISTEMA_2022.csv
+      method: GET
+      response_format: csv
+      instrument_key_map: *id001
+      field_mapping:
+        instrument_key: id_subsistema
+        ts: ear_data
+        value: ear_verif_subsistema_percentual
+        provenance: '`"real"`'
+    - category: hydrology
+      path_template: /dataset/ear_subsistema_di/EAR_DIARIO_SUBSISTEMA_2023.csv
+      method: GET
+      response_format: csv
+      instrument_key_map: *id001
+      field_mapping:
+        instrument_key: id_subsistema
+        ts: ear_data
+        value: ear_verif_subsistema_percentual
+        provenance: '`"real"`'
+    - category: hydrology
+      path_template: /dataset/ear_subsistema_di/EAR_DIARIO_SUBSISTEMA_2024.csv
+      method: GET
+      response_format: csv
+      instrument_key_map: *id001
+      field_mapping:
+        instrument_key: id_subsistema
+        ts: ear_data
+        value: ear_verif_subsistema_percentual
+        provenance: '`"real"`'
+    - category: hydrology
+      path_template: /dataset/ear_subsistema_di/EAR_DIARIO_SUBSISTEMA_2025.csv
+      method: GET
+      response_format: csv
+      instrument_key_map: *id001
+      field_mapping:
+        instrument_key: id_subsistema
+        ts: ear_data
+        value: ear_verif_subsistema_percentual
+        provenance: '`"real"`'
+    - category: hydrology
       path_template: /dataset/ear_subsistema_di/EAR_DIARIO_SUBSISTEMA_2026.csv
       method: GET
       response_format: csv
-      row_filter: nom_subsistema == 'SUDESTE'
+      instrument_key_map: *id001
       field_mapping:
-        instrument_key: '`"BR_HYDRO_SE_RESERVOIR"`'
+        instrument_key: id_subsistema
         ts: ear_data
         value: ear_verif_subsistema_percentual
         provenance: '`"real"`'
     pagination:
       mode: none
-
-- provider_id: ons_cmo_daily_mean
+- provider_id: ons_ena
+  categories:
+  - inflow
+  connector_kind: declarative
+  options:
+    provider_id: ons_ena
+    base_url: https://ons-aws-prod-opendata.s3.amazonaws.com
+    endpoints:
+    - category: inflow
+      path_template: /dataset/ena_subsistema_di/ENA_DIARIO_SUBSISTEMA_2020.csv
+      method: GET
+      response_format: csv
+      instrument_key_map: &id002
+        SE: BR_ENA_SE_MLT
+        S: BR_ENA_S_MLT
+        NE: BR_ENA_NE_MLT
+        N: BR_ENA_N_MLT
+      field_mapping:
+        instrument_key: id_subsistema
+        ts: ena_data
+        value: ena_bruta_regiao_percentualmlt
+        provenance: '`"real"`'
+    - category: inflow
+      path_template: /dataset/ena_subsistema_di/ENA_DIARIO_SUBSISTEMA_2021.csv
+      method: GET
+      response_format: csv
+      instrument_key_map: *id002
+      field_mapping:
+        instrument_key: id_subsistema
+        ts: ena_data
+        value: ena_bruta_regiao_percentualmlt
+        provenance: '`"real"`'
+    - category: inflow
+      path_template: /dataset/ena_subsistema_di/ENA_DIARIO_SUBSISTEMA_2022.csv
+      method: GET
+      response_format: csv
+      instrument_key_map: *id002
+      field_mapping:
+        instrument_key: id_subsistema
+        ts: ena_data
+        value: ena_bruta_regiao_percentualmlt
+        provenance: '`"real"`'
+    - category: inflow
+      path_template: /dataset/ena_subsistema_di/ENA_DIARIO_SUBSISTEMA_2023.csv
+      method: GET
+      response_format: csv
+      instrument_key_map: *id002
+      field_mapping:
+        instrument_key: id_subsistema
+        ts: ena_data
+        value: ena_bruta_regiao_percentualmlt
+        provenance: '`"real"`'
+    - category: inflow
+      path_template: /dataset/ena_subsistema_di/ENA_DIARIO_SUBSISTEMA_2024.csv
+      method: GET
+      response_format: csv
+      instrument_key_map: *id002
+      field_mapping:
+        instrument_key: id_subsistema
+        ts: ena_data
+        value: ena_bruta_regiao_percentualmlt
+        provenance: '`"real"`'
+    - category: inflow
+      path_template: /dataset/ena_subsistema_di/ENA_DIARIO_SUBSISTEMA_2025.csv
+      method: GET
+      response_format: csv
+      instrument_key_map: *id002
+      field_mapping:
+        instrument_key: id_subsistema
+        ts: ena_data
+        value: ena_bruta_regiao_percentualmlt
+        provenance: '`"real"`'
+    - category: inflow
+      path_template: /dataset/ena_subsistema_di/ENA_DIARIO_SUBSISTEMA_2026.csv
+      method: GET
+      response_format: csv
+      instrument_key_map: *id002
+      field_mapping:
+        instrument_key: id_subsistema
+        ts: ena_data
+        value: ena_bruta_regiao_percentualmlt
+        provenance: '`"real"`'
+    pagination:
+      mode: none
+- provider_id: ons_cmo_pld_proxy
   categories:
   - spot
   connector_kind: declarative
   options:
-    provider_id: ons_cmo_daily_mean
+    provider_id: ons_cmo_pld_proxy
     base_url: https://ons-aws-prod-opendata.s3.amazonaws.com
     endpoints:
     - category: spot
-      # CMO Semi-Horário SE/CO -> daily mean (labeled PLD proxy; see header note)
-      path_template: /dataset/cmo_tm/CMO_SEMIHORARIO_2026.csv
+      path_template: /dataset/cmo_tm/CMO_SEMIHORARIO_2020.csv
       method: GET
       response_format: csv
-      row_filter: nom_subsistema == 'SUDESTE'
-      aggregate: daily_mean
+      instrument_key_map: &id003
+        SE: BR_POWER_SE_SPOT
+        S: BR_POWER_S_SPOT
+        NE: BR_POWER_NE_SPOT
+        N: BR_POWER_N_SPOT
       field_mapping:
-        instrument_key: '`"BR_POWER_SE_SPOT"`'
+        instrument_key: id_subsistema
         ts: din_instante
         value: val_cmo
         provenance: '`"real"`'
+      aggregate: daily_mean
+      value_clamp:
+      - 39.68
+      - 559.75
+    - category: spot
+      path_template: /dataset/cmo_tm/CMO_SEMIHORARIO_2021.csv
+      method: GET
+      response_format: csv
+      instrument_key_map: *id003
+      field_mapping:
+        instrument_key: id_subsistema
+        ts: din_instante
+        value: val_cmo
+        provenance: '`"real"`'
+      aggregate: daily_mean
+      value_clamp:
+      - 49.77
+      - 583.88
+    - category: spot
+      path_template: /dataset/cmo_tm/CMO_SEMIHORARIO_2022.csv
+      method: GET
+      response_format: csv
+      instrument_key_map: *id003
+      field_mapping:
+        instrument_key: id_subsistema
+        ts: din_instante
+        value: val_cmo
+        provenance: '`"real"`'
+      aggregate: daily_mean
+      value_clamp:
+      - 55.7
+      - 646.58
+    - category: spot
+      path_template: /dataset/cmo_tm/CMO_SEMIHORARIO_2023.csv
+      method: GET
+      response_format: csv
+      instrument_key_map: *id003
+      field_mapping:
+        instrument_key: id_subsistema
+        ts: din_instante
+        value: val_cmo
+        provenance: '`"real"`'
+      aggregate: daily_mean
+      value_clamp:
+      - 69.04
+      - 678.29
+    - category: spot
+      path_template: /dataset/cmo_tm/CMO_SEMIHORARIO_2024.csv
+      method: GET
+      response_format: csv
+      instrument_key_map: *id003
+      field_mapping:
+        instrument_key: id_subsistema
+        ts: din_instante
+        value: val_cmo
+        provenance: '`"real"`'
+      aggregate: daily_mean
+      value_clamp:
+      - 58.6
+      - 751.73
+    - category: spot
+      path_template: /dataset/cmo_tm/CMO_SEMIHORARIO_2025.csv
+      method: GET
+      response_format: csv
+      instrument_key_map: *id003
+      field_mapping:
+        instrument_key: id_subsistema
+        ts: din_instante
+        value: val_cmo
+        provenance: '`"real"`'
+      aggregate: daily_mean
+      value_clamp:
+      - 58.6
+      - 751.73
+    - category: spot
+      path_template: /dataset/cmo_tm/CMO_SEMIHORARIO_2026.csv
+      method: GET
+      response_format: csv
+      instrument_key_map: *id003
+      field_mapping:
+        instrument_key: id_subsistema
+        ts: din_instante
+        value: val_cmo
+        provenance: '`"real"`'
+      aggregate: daily_mean
+      value_clamp:
+      - 57.31
+      - 785.27
     pagination:
       mode: none
-
 qualitative_context:
 - provider_id: sample_provider
   categories:
