@@ -271,6 +271,125 @@ def test_results_path_ignores_non_list_result(monkeypatch):
     assert connector.fetch_series("spot", "FIX_INST") == []
 
 
+def test_csv_response_with_row_filter_and_no_credential():
+    """Mirrors ONS's real S3-hosted open-data shape: a public CSV (no auth — S3
+    rejects stray Authorization headers), semicolon-delimited, all four
+    subsystems interleaved, ISO dates. No credential block in the descriptor
+    means NO Authorization header is sent at all."""
+    descriptor = {
+        "provider_id": "ons_style_vendor",
+        "base_url": "https://opendata.example.test",
+        "endpoints": [
+            {
+                "category": "hydrology",
+                "path_template": "/dataset/ear/EAR_2026.csv",
+                "method": "GET",
+                "response_format": "csv",
+                "row_filter": "nom_subsistema == 'SUDESTE'",
+                "field_mapping": {
+                    "instrument_key": '`"BR_HYDRO_SE_RESERVOIR"`',
+                    "ts": "ear_data",
+                    "value": "ear_verif_subsistema_percentual",
+                    "provenance": '`"real"`',
+                },
+            }
+        ],
+        "pagination": {"mode": "none"},
+    }
+    body = (
+        "id_subsistema;nom_subsistema;ear_data;ear_max;ear_verif;"
+        "ear_verif_subsistema_percentual\n"
+        "NE;NORDESTE;2026-01-01;51691.2;23746.6;45.9395\n"
+        "N ;NORTE;2026-01-01;15302.3;8377.9;54.749\n"
+        "SE;SUDESTE;2026-01-01;204615.3;130769.9;63.9102\n"
+        "SE;SUDESTE;2026-01-02;204615.3;131000.0;64.0225\n"
+    )
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["authorization"] = request.headers.get("authorization")
+        return httpx.Response(200, content=body.encode(), headers={"content-type": "text/csv"})
+
+    connector = DeclarativeConnector(
+        DataSourceDescriptor.model_validate(descriptor),
+        transport=httpx.MockTransport(handler),
+    )
+    observations = connector.fetch_series("hydrology", "BR_HYDRO_SE_RESERVOIR")
+
+    assert seen["authorization"] is None  # public endpoint: no Bearer header
+    assert len(observations) == 2  # only the SUDESTE rows survive the filter
+    assert observations[0].instrument_key == "BR_HYDRO_SE_RESERVOIR"
+    assert observations[0].value == 63.9102
+    assert observations[0].provenance == "real"
+    assert observations[1].ts.day == 2
+
+
+def test_daily_mean_aggregation_collapses_subdaily_rows():
+    """ONS's CMO is semi-hourly (48 rows/day); aggregate=daily_mean yields one
+    observation per calendar day carrying that day's mean."""
+    descriptor = {
+        "provider_id": "ons_cmo_style_vendor",
+        "base_url": "https://opendata.example.test",
+        "endpoints": [
+            {
+                "category": "spot",
+                "path_template": "/dataset/cmo/CMO_2026.csv",
+                "response_format": "csv",
+                "row_filter": "nom_subsistema == 'SUDESTE'",
+                "aggregate": "daily_mean",
+                "field_mapping": {
+                    "instrument_key": '`"BR_POWER_SE_SPOT"`',
+                    "ts": "din_instante",
+                    "value": "val_cmo",
+                    "provenance": '`"real"`',
+                },
+            }
+        ],
+        "pagination": {"mode": "none"},
+    }
+    body = (
+        "id_subsistema;nom_subsistema;din_instante;val_cmo\n"
+        "SE;SUDESTE;2026-01-01 00:00:00;100.0\n"
+        "SE;SUDESTE;2026-01-01 00:30:00;200.0\n"
+        "S;SUL;2026-01-01 00:00:00;999.0\n"
+        "SE;SUDESTE;2026-01-02 00:00:00;150.0\n"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body.encode())
+
+    connector = DeclarativeConnector(
+        DataSourceDescriptor.model_validate(descriptor),
+        transport=httpx.MockTransport(handler),
+    )
+    observations = connector.fetch_series("spot", "BR_POWER_SE_SPOT")
+
+    assert len(observations) == 2
+    assert observations[0].ts.isoformat() == "2026-01-01T00:00:00+00:00"
+    assert observations[0].value == 150.0  # mean(100, 200); SUL row filtered out
+    assert observations[1].value == 150.0
+    assert observations[1].ts.day == 2
+
+
+def test_configured_credential_still_raises_when_env_missing(monkeypatch):
+    """Optional-credential support must not weaken contract rule 1: a credential
+    that IS configured but cannot resolve raises — only an explicitly absent
+    credential block means public/no-auth."""
+    monkeypatch.delenv("FIXTURE_VENDOR_API_KEY", raising=False)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("must not issue a request without a resolved credential")
+
+    connector = DeclarativeConnector(
+        DataSourceDescriptor.model_validate(MARKET_DESCRIPTOR),
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(CredentialError):
+        connector.fetch_series("spot", "FIX_INST")
+    health = connector.health_check()
+    assert health.ok is False
+
+
 def test_health_check_reports_missing_credential_without_raising(monkeypatch):
     monkeypatch.delenv("FIXTURE_VENDOR_API_KEY", raising=False)
 

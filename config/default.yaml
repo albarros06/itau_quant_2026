@@ -12,22 +12,31 @@ datastore:
 instrument_universe:
   - key: BR_POWER_SE_SPOT
     category: spot
-    description: SE/CO submarket spot power price (PLD-style daily settlement)
+    description: >-
+      SE/CO daily spot power price. Currently ONS CMO daily mean (real), a labeled
+      PROXY for the official CCEE PLD while dadosabertos.ccee.org.br is under a
+      maintenance block — see config/providers.yaml header.
   - key: BR_POWER_SE_FWD_M1
     category: forward_curve
-    description: SE/CO front-month forward power price
+    description: >-
+      SE/CO front-month forward power price (SYNTHETIC sample data — no free
+      public source exists for BR power forwards)
   - key: BR_POWER_SE_FWD_M3
     category: forward_curve
-    description: SE/CO 3-month forward power price
+    description: >-
+      SE/CO 3-month forward power price (SYNTHETIC sample data — no free public
+      source exists for BR power forwards)
   - key: BR_HYDRO_SE_RESERVOIR
     category: hydrology
-    description: SE/CO aggregate reservoir level (% of max stored energy)
+    description: SE/CO aggregate reservoir level, % of max stored energy (ONS EAR, real)
   - key: BR_DI_1Y
     category: interest_rate
-    description: 1y DI interest-rate curve point
+    description: >-
+      Short-rate point. Currently BACEN SGS série 432 (Meta Selic, real), a labeled
+      PROXY for the 1y DI vertex (no free stable-URL source for the B3 DI curve).
   - key: BRL_USD_FX
     category: fx
-    description: BRL/USD exchange rate
+    description: BRL/USD exchange rate (BACEN SGS série 1, PTAX venda, real)
 
 data_quality:
   freshness_tolerance_days: 7
