@@ -56,8 +56,8 @@ change, and the one required datastore migration — every user story depends on
 - [X] T007 `src/energy_research/common/signals.py` — extend `hypothesis_returns(prices, instruments, direction, condition=None)` to return `(returns: pd.Series, activity: ActivityStats)`: equal-weight `1/n` basket combination for `long`/`short` across all declared instruments (`multi-leg-evaluation-contract.md` rule 1; `n=1` reduces to the exact pre-003 formula), unchanged `leg1 - leg2` for `spread`/`relative_value`, with the condition mask (T002) multiplied into each leg's return series before combining (depends on T002)
 - [X] T008 [P] `src/energy_research/backtesting/costs.py` — `CostModel.compute(n_legs, entries, exits, in_market_days, gross_exposure=1.0)`: `traded_notional = (entries + exits) * n_legs * gross_exposure` (replacing the hardcoded `2.0 *`), `financing_carry` computed over `in_market_days` (replacing `n_days`) per `contracts/turnover-cost-contract.md` rules 1–2
 - [X] T009 `src/energy_research/generation/schemas.py` — `HypothesisDraft.condition: SignalCondition | None` (imports `common.conditions`); tighten `validate_draft`'s `spread`/`relative_value` check from "at least two" to "exactly two" instruments per `contracts/multi-leg-evaluation-contract.md` rule 2 (depends on T002)
-- [ ] T010 [P] `tests/contract/test_conditional_signal_schema.py` — mirrors `test_thesis_schema.py`: valid conditions accepted; each field-combination-validity rule (contracts rule 3) rejects malformed clauses; clause-count bound (rule 4) enforced; out-of-universe `instrument_key` rejected (mirrors thesis-schema.md rule 3); a free-text `condition` string is schema-invalid, not silently accepted (depends on T009)
-- [ ] T011 [P] `tests/unit/common/test_signals_conditions.py` — frozen pre-003 output fixture: `hypothesis_returns(..., condition=None)` byte-equal (`np.array_equal`) to the pre-change reference for every direction (SC-006); lookahead probe — an extreme return on the first decidable day never enters that day's masked return, and shifting all signals forward by one day changes the result (SC-003); warmup days resolve inactive, not `NaN`-as-active; multi-clause AND combination; multi-leg equal-weight basket math (`n=2` basket return equals the average of the two single-instrument returns) (depends on T007)
+- [X] T010 [P] `tests/contract/test_conditional_signal_schema.py` — mirrors `test_thesis_schema.py`: valid conditions accepted; each field-combination-validity rule (contracts rule 3) rejects malformed clauses; clause-count bound (rule 4) enforced; out-of-universe `instrument_key` rejected (mirrors thesis-schema.md rule 3); a free-text `condition` string is schema-invalid, not silently accepted (depends on T009)
+- [X] T011 [P] `tests/unit/common/test_signals_conditions.py` — frozen pre-003 output fixture: `hypothesis_returns(..., condition=None)` byte-equal (`np.array_equal`) to the pre-change reference for every direction (SC-006); lookahead probe — an extreme return on the first decidable day never enters that day's masked return, and shifting all signals forward by one day changes the result (SC-003); warmup days resolve inactive, not `NaN`-as-active; multi-clause AND combination; multi-leg equal-weight basket math (`n=2` basket return equals the average of the two single-instrument returns) (depends on T007)
 
 **Checkpoint**: Foundation ready — user story implementation can now begin.
 
@@ -80,8 +80,8 @@ inverting the condition flips the result (spec.md US1 Independent Test).
 - [X] T013 [P] [US1] `src/energy_research/critique/service.py` — critique prompt gains the same condition-vocabulary note so refinements can propose/adjust conditions
 - [X] T014 [US1] `src/energy_research/screening/service.py` — pass `thesis["hypothesis"].get("condition")` through to `hypothesis_returns` (T007); persist the returned `ActivityStats` into the new `other_metrics` column via `insert_screening_result` (T006) (depends on T007, T006)
 - [X] T015 [P] [US1] `src/energy_research/reporting/report_builder.py` — render `condition_summary`: deterministic plain-language rendering of the clause list (e.g. `"active when BR_ENA_SE_MLT < 80.0"`), or `null` for unconditional theses (data-model.md report entry extensions, FR-010)
-- [ ] T016 [P] [US1] `tests/integration/test_conditional_screening_end_to_end.py` — planted-signal fixture: the conditional thesis passes screening while the unconditional one fails; inverting the condition flips the result (SC-002); two theses differing only in condition produce differing screening statistics (SC-001) (depends on T014)
-- [ ] T017 [US1] `tests/integration/test_research_cycle_end_to_end.py` — extend: an unconditional thesis's screening statistics are byte-equal to the pre-003 recorded reference (SC-006) (depends on T014)
+- [X] T016 [P] [US1] `tests/integration/test_conditional_screening_end_to_end.py` — planted-signal fixture: the conditional thesis passes screening while the unconditional one fails; inverting the condition flips the result (SC-002); two theses differing only in condition produce differing screening statistics (SC-001) (depends on T014)
+- [X] T017 [US1] `tests/integration/test_research_cycle_end_to_end.py` — extend: an unconditional thesis's screening statistics are byte-equal to the pre-003 recorded reference (SC-006) (depends on T014)
 
 **Checkpoint**: User Story 1 is fully functional and independently testable (MVP) — conditions
 differentiate screening outcomes; the unconditional path is provably unchanged.
@@ -102,7 +102,7 @@ Test).
 ### Implementation for User Story 2
 
 - [X] T018 [US2] `src/energy_research/backtesting/engine.py` — `run_backtest` now receives `ActivityStats` from the extended `hypothesis_returns` (T007) and calls `CostModel.compute` (T008) with `entries`/`exits`/`in_market_days`; persists `ActivityStats` into `BacktestComputation.other_metrics` alongside existing keys; the pre-existing non-finite guard (engine + datastore) is untouched (depends on T007, T008)
-- [ ] T019 [P] [US2] `tests/unit/backtesting/test_turnover_costs.py` — doubling a fixture's entries+exits doubles persisted transaction+slippage; halving in-market days halves financing (SC-004); the unconditional case (`entries=1, exits=1, in_market_days=total_days`) reproduces the exact pre-003 constants (SC-006) (depends on T008)
+- [X] T019 [P] [US2] `tests/unit/backtesting/test_turnover_costs.py` — doubling a fixture's entries+exits doubles persisted transaction+slippage; halving in-market days halves financing (SC-004); the unconditional case (`entries=1, exits=1, in_market_days=total_days`) reproduces the exact pre-003 constants (SC-006) (depends on T008)
 - [X] T020 [US2] `tests/unit/backtesting/test_costs_and_engine.py` — extend: recomputing `CostModel.compute` from a persisted result's `other_metrics` (entries/exits/in_market_days) reproduces the persisted `transaction_costs`/`slippage`/`financing_carry` exactly (SC-004) (depends on T018)
 
 **Checkpoint**: User Story 1 and User Story 2 both work — conditional theses are screened AND
@@ -123,7 +123,7 @@ each (spec.md US3 Independent Test).
 ### Implementation for User Story 3
 
 - [X] T021 [US3] `src/energy_research/reporting/report_builder.py` — render `legs`: `[{"instrument_key", "weight"}]` — `1/n` each for `long`/`short`, `+1.0`/`-1.0` for the two `spread`/`relative_value` legs — computed at render time from `hypothesis.instruments`/`hypothesis.direction` (`contracts/multi-leg-evaluation-contract.md` rule 4) (depends on T015, same file)
-- [ ] T022 [P] [US3] `tests/integration/test_report_transparency.py` — extend: every report entry with a backtest lists every traded leg with its weight, and no entry lists an untraded instrument, checked mechanically over a full cycle's report (SC-005) (depends on T021)
+- [X] T022 [P] [US3] `tests/integration/test_report_transparency.py` — extend: every report entry with a backtest lists every traded leg with its weight, and no entry lists an untraded instrument, checked mechanically over a full cycle's report (SC-005) (depends on T021)
 
 **Checkpoint**: User Stories 1–3 all work independently — multi-leg baskets trade, and report,
 exactly their declared legs.
@@ -145,8 +145,8 @@ marked rejected with a reason naming both counts; no screening statistic is reco
 - [X] T023 [US4] `src/energy_research/screening/service.py` — before running the block-bootstrap test, check `ActivityStats.in_market_days` (discovery split) against `conditional_screening.min_active_days.discovery`; below it, reject with a reason naming both counts, insert no `ScreeningResult`, and exclude the thesis from the wave's multiplicity family (`contracts/conditional-signal-contract.md` rules 10–11) (depends on T014)
 - [X] T024 [P] [US4] `src/energy_research/backtesting/service.py` — analogous gates in `run_refinement`/`run_final_evaluation` against `min_active_days.refinement`/`.final_evaluation`; below threshold, reject with a reason naming both counts and persist no `BacktestResult` for that split (`contracts/turnover-cost-contract.md` rule 5) (depends on T018)
 - [X] T025 [US4] `src/energy_research/reporting/report_builder.py` — render `activity`: `in_market_days`/`total_days`/`entries`/`exits` per split, alongside the existing cost breakdown (data-model.md report entry extensions) (depends on T021, same file)
-- [ ] T026 [P] [US4] `tests/unit/screening/test_methods_and_multiplicity.py` — extend: a thesis refused by the `min_active_days` gate is excluded from the BH/Bonferroni family size `m` — the family consists only of tests actually performed (Clarification 2026-07-21) (depends on T023)
-- [ ] T027 [P] [US4] `tests/integration/test_conditional_screening_end_to_end.py` — extend: a fixture condition active on fewer than `min_active_days` days is rejected with a reason naming the observed and required counts, no p-value recorded (SC-007); a condition that never becomes active (0 active days) hits the same refusal path with no divide-by-zero/NaN (depends on T023, T024)
+- [X] T026 [P] [US4] `tests/unit/screening/test_methods_and_multiplicity.py` — extend: a thesis refused by the `min_active_days` gate is excluded from the BH/Bonferroni family size `m` — the family consists only of tests actually performed (Clarification 2026-07-21) (depends on T023)
+- [X] T027 [P] [US4] `tests/integration/test_conditional_screening_end_to_end.py` — extend: a fixture condition active on fewer than `min_active_days` days is rejected with a reason naming the observed and required counts, no p-value recorded (SC-007); a condition that never becomes active (0 active days) hits the same refusal path with no divide-by-zero/NaN (depends on T023, T024)
 
 **Checkpoint**: All four user stories independently functional — conditions are tested, honestly
 costed, honestly reported, and guarded against small-sample abuse.
@@ -158,10 +158,10 @@ costed, honestly reported, and guarded against small-sample abuse.
 **Purpose**: Verify the whole feature against the Constitution and against every pre-003
 guarantee it must not have disturbed
 
-- [ ] T028 [P] Ruff lint pass across `src/energy_research/` and `tests/` for every file touched in Phases 2–6; fix violations
-- [ ] T029 Re-verify the Constitution Check table in `plan.md` against the implemented code (walk all 8 principles); record any drift
-- [ ] T030 [P] `tests/integration/test_reproducibility.py` — extend: a pre-003-recorded cycle (whose `config_snapshot` predates `conditional_screening`) replays to its recorded shortlist unchanged (SC-006, FR-012) (depends on T017, T020)
-- [ ] T031 Run `quickstart.md`'s end-to-end walkthrough against a real config (`uv run research-pipeline run-cycle`); confirm activity stats appear in a persisted `backtest_results.other_metrics` row and a `condition_summary`/`legs`/`activity`-populated entry appears in the rendered report (depends on all of Phases 3–6)
+- [X] T028 [P] Ruff lint pass across `src/energy_research/` and `tests/` for every file touched in Phases 2–6; fix violations
+- [X] T029 Re-verify the Constitution Check table in `plan.md` against the implemented code (walk all 8 principles); record any drift
+- [X] T030 [P] `tests/integration/test_reproducibility.py` — extend: a pre-003-recorded cycle (whose `config_snapshot` predates `conditional_screening`) replays to its recorded shortlist unchanged (SC-006, FR-012) (depends on T017, T020)
+- [X] T031 Run `quickstart.md`'s end-to-end walkthrough against a real config (`uv run research-pipeline run-cycle`); confirm activity stats appear in a persisted `backtest_results.other_metrics` row and a `condition_summary`/`legs`/`activity`-populated entry appears in the rendered report (depends on all of Phases 3–6)
 
 ---
 

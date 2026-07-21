@@ -34,10 +34,7 @@ def _activity(other_metrics: dict | None) -> dict | None:
 def _clause_summary(clause: dict) -> str:
     inst = clause["instrument_key"]
     transform = clause["subject_transform"]
-    if transform == "level":
-        subject = inst
-    else:  # sma / change
-        subject = f"{transform}({inst}, {clause['subject_lookback']})"
+    subject = inst if transform == "level" else f"{transform}({inst}, {clause['subject_lookback']})"
     kind = clause["reference_kind"]
     if kind == "constant":
         reference = f"{clause['reference_value']}"

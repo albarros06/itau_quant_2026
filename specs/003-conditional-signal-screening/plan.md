@@ -102,6 +102,22 @@ idempotent, consistent with Principle VIII's "only in response to a demonstrated
 — the need being ActivityStats' persistence, already justified under Principle VII.
 **Result: still PASS, no changes.***
 
+*Post-implementation re-check (all 31 tasks complete; full suite green — T029): walked all 8
+principles against the actual code, not just the design.*
+
+| Principle | Status | Verified against implementation |
+|---|---|---|
+| I. Provider-Agnostic Data Ingestion | **N/A** | No connector/provider code touched; conditions reference universe instruments only, validated per-clause in `generation/schemas.py::validate_draft`. |
+| II. Statistical Rigor Before Backtesting | **PASS** | `common.conditions.evaluate_condition` reads only the split-scoped panel `screening`/`backtesting` already hold; the block-bootstrap + multiplicity code is unchanged, now fed the conditional stream. The `min_active_days` gate excludes under-observed conditions from the family (`test_conditional_screening_end_to_end.py`, `test_methods_and_multiplicity.py::TestFamilyExcludesRefusals`). |
+| III. Constrained LLM Autonomy | **PASS** | `SignalCondition`/`ConditionClause` are `extra="forbid"` Pydantic models reaching the LLM via `TradingThesisDraft.model_json_schema()`; free text is `invalid_schema` (`test_conditional_signal_schema.py::test_free_text_condition_is_schema_invalid`). No executable condition is ever accepted. |
+| IV. Backtest Honesty | **PASS** | Costs scale with realized `entries`/`exits`/`in_market_days` (`test_turnover_costs.py`), recoverable from persisted `other_metrics` (`test_costs_and_engine.py::test_costs_recoverable_from_persisted_activity`); multi-leg baskets trade every declared instrument at `1/n` and the report lists exactly those legs (`test_report_transparency.py::test_every_entry_trades_exactly_its_declared_legs`). The non-finite guard is untouched. |
+| V. Mobile-First, Fully Responsive UI | **N/A (deferred)** | No UI; new report fields (`condition_summary`, `legs`, `activity`) are JSON + Markdown only. |
+| VI. Configuration Over Hardcoding | **PASS** | `ConditionalScreeningConfig` (`extra="forbid"`) holds `max_clauses`/`max_lookback_days`/per-split `min_active_days`; recorded verbatim in `config_snapshot`. |
+| VII. Fail-Loud Observability | **PASS** | Under-observed conditions are refused with a reason naming both counts and no `ScreeningResult`/`BacktestResult` row (`test_conditional_screening_end_to_end.py`); a 0-active-days condition hits the same path with no NaN. |
+| VIII. Simplicity & Reproducibility | **PASS** | One shared `hypothesis_returns`/`evaluate_condition` seam, not two. The one migration is a single guarded `ALTER TABLE`. `condition=None` + `n=1` is byte-equal to pre-003 (`test_signals_conditions.py::TestUnconditionalRegression`), and a pre-003 snapshot without the new section still replays (`test_reproducibility.py::test_pre003_snapshot_without_conditional_screening_still_replays`). |
+
+**Result: PASS, no drift.** No Complexity Tracking entry needed.
+
 ## Project Structure
 
 ### Documentation (this feature)

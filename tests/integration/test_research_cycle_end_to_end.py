@@ -90,6 +90,31 @@ def test_scenario_5_report_explains_outcomes_without_reading_code(completed_cycl
     assert result.promoted_thesis_ids, "expected at least one promoted thesis"
 
 
+def test_scenario_6_unconditional_path_matches_pre003_accounting(completed_cycle):
+    """SC-006/FR-012: the stub emits unconditional theses; every screened/backtested
+    result must carry the pre-003 always-in accounting exactly — full window in
+    market, one entry, one closing exit — proving condition=None is byte-for-byte
+    the old path."""
+    _, result, repo = completed_cycle
+    saw_screening = saw_backtest = False
+    for thesis in repo.theses_for_cycle(result.cycle_id):
+        if thesis["status"] == "invalid_schema":
+            continue
+        assert thesis["hypothesis"].get("condition") is None
+        screening = repo.screening_result_for(thesis["thesis_id"])
+        if screening and screening["other_metrics"]:
+            act = screening["other_metrics"]
+            assert act["in_market_days"] == act["total_days"]
+            assert act["entries"] == 1 and act["exits"] == 1
+            saw_screening = True
+        for bt in repo.backtest_results_for(thesis["thesis_id"]):
+            om = bt["other_metrics"]
+            assert om["in_market_days"] == om["total_days"]
+            assert om["entries"] == 1 and om["exits"] == 1
+            saw_backtest = True
+    assert saw_screening and saw_backtest
+
+
 def test_cli_run_cycle_end_to_end(tmp_path, pipeline_config):
     """The actual `research-pipeline` CLI wires trigger → report with no manual step."""
     config_path = tmp_path / "config.yaml"

@@ -66,12 +66,13 @@ class ConditionClause(BaseModel):
                 raise ValueError("reference_kind='sma' requires reference_lookback set")
             if self.reference_quantile is not None:
                 raise ValueError("reference_kind='sma' requires reference_quantile=null")
-        elif self.reference_kind == "rolling_quantile":
-            if self.reference_lookback is None or self.reference_quantile is None:
-                raise ValueError(
-                    "reference_kind='rolling_quantile' requires reference_lookback and "
-                    "reference_quantile set"
-                )
+        elif self.reference_kind == "rolling_quantile" and (
+            self.reference_lookback is None or self.reference_quantile is None
+        ):
+            raise ValueError(
+                "reference_kind='rolling_quantile' requires reference_lookback and "
+                "reference_quantile set"
+            )
         return self
 
 
