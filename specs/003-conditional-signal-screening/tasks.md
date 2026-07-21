@@ -76,10 +76,10 @@ inverting the condition flips the result (spec.md US1 Independent Test).
 
 ### Implementation for User Story 1
 
-- [ ] T012 [P] [US1] `src/energy_research/generation/llm_client.py` — `_SYSTEM` prompt gains the condition-vocabulary paragraph (subjects, transforms, references, comparators, `max_clauses`, `max_lookback_days`) alongside the existing `universe_keys` list (research.md §8)
-- [ ] T013 [P] [US1] `src/energy_research/critique/service.py` — critique prompt gains the same condition-vocabulary note so refinements can propose/adjust conditions
+- [X] T012 [P] [US1] `src/energy_research/generation/llm_client.py` — `_SYSTEM` prompt gains the condition-vocabulary paragraph (subjects, transforms, references, comparators, `max_clauses`, `max_lookback_days`) alongside the existing `universe_keys` list (research.md §8)
+- [X] T013 [P] [US1] `src/energy_research/critique/service.py` — critique prompt gains the same condition-vocabulary note so refinements can propose/adjust conditions
 - [X] T014 [US1] `src/energy_research/screening/service.py` — pass `thesis["hypothesis"].get("condition")` through to `hypothesis_returns` (T007); persist the returned `ActivityStats` into the new `other_metrics` column via `insert_screening_result` (T006) (depends on T007, T006)
-- [ ] T015 [P] [US1] `src/energy_research/reporting/report_builder.py` — render `condition_summary`: deterministic plain-language rendering of the clause list (e.g. `"active when BR_ENA_SE_MLT < 80.0"`), or `null` for unconditional theses (data-model.md report entry extensions, FR-010)
+- [X] T015 [P] [US1] `src/energy_research/reporting/report_builder.py` — render `condition_summary`: deterministic plain-language rendering of the clause list (e.g. `"active when BR_ENA_SE_MLT < 80.0"`), or `null` for unconditional theses (data-model.md report entry extensions, FR-010)
 - [ ] T016 [P] [US1] `tests/integration/test_conditional_screening_end_to_end.py` — planted-signal fixture: the conditional thesis passes screening while the unconditional one fails; inverting the condition flips the result (SC-002); two theses differing only in condition produce differing screening statistics (SC-001) (depends on T014)
 - [ ] T017 [US1] `tests/integration/test_research_cycle_end_to_end.py` — extend: an unconditional thesis's screening statistics are byte-equal to the pre-003 recorded reference (SC-006) (depends on T014)
 
@@ -122,7 +122,7 @@ each (spec.md US3 Independent Test).
 
 ### Implementation for User Story 3
 
-- [ ] T021 [US3] `src/energy_research/reporting/report_builder.py` — render `legs`: `[{"instrument_key", "weight"}]` — `1/n` each for `long`/`short`, `+1.0`/`-1.0` for the two `spread`/`relative_value` legs — computed at render time from `hypothesis.instruments`/`hypothesis.direction` (`contracts/multi-leg-evaluation-contract.md` rule 4) (depends on T015, same file)
+- [X] T021 [US3] `src/energy_research/reporting/report_builder.py` — render `legs`: `[{"instrument_key", "weight"}]` — `1/n` each for `long`/`short`, `+1.0`/`-1.0` for the two `spread`/`relative_value` legs — computed at render time from `hypothesis.instruments`/`hypothesis.direction` (`contracts/multi-leg-evaluation-contract.md` rule 4) (depends on T015, same file)
 - [ ] T022 [P] [US3] `tests/integration/test_report_transparency.py` — extend: every report entry with a backtest lists every traded leg with its weight, and no entry lists an untraded instrument, checked mechanically over a full cycle's report (SC-005) (depends on T021)
 
 **Checkpoint**: User Stories 1–3 all work independently — multi-leg baskets trade, and report,
@@ -143,8 +143,8 @@ marked rejected with a reason naming both counts; no screening statistic is reco
 ### Implementation for User Story 4
 
 - [X] T023 [US4] `src/energy_research/screening/service.py` — before running the block-bootstrap test, check `ActivityStats.in_market_days` (discovery split) against `conditional_screening.min_active_days.discovery`; below it, reject with a reason naming both counts, insert no `ScreeningResult`, and exclude the thesis from the wave's multiplicity family (`contracts/conditional-signal-contract.md` rules 10–11) (depends on T014)
-- [ ] T024 [P] [US4] `src/energy_research/backtesting/service.py` — analogous gates in `run_refinement`/`run_final_evaluation` against `min_active_days.refinement`/`.final_evaluation`; below threshold, reject with a reason naming both counts and persist no `BacktestResult` for that split (`contracts/turnover-cost-contract.md` rule 5) (depends on T018)
-- [ ] T025 [US4] `src/energy_research/reporting/report_builder.py` — render `activity`: `in_market_days`/`total_days`/`entries`/`exits` per split, alongside the existing cost breakdown (data-model.md report entry extensions) (depends on T021, same file)
+- [X] T024 [P] [US4] `src/energy_research/backtesting/service.py` — analogous gates in `run_refinement`/`run_final_evaluation` against `min_active_days.refinement`/`.final_evaluation`; below threshold, reject with a reason naming both counts and persist no `BacktestResult` for that split (`contracts/turnover-cost-contract.md` rule 5) (depends on T018)
+- [X] T025 [US4] `src/energy_research/reporting/report_builder.py` — render `activity`: `in_market_days`/`total_days`/`entries`/`exits` per split, alongside the existing cost breakdown (data-model.md report entry extensions) (depends on T021, same file)
 - [ ] T026 [P] [US4] `tests/unit/screening/test_methods_and_multiplicity.py` — extend: a thesis refused by the `min_active_days` gate is excluded from the BH/Bonferroni family size `m` — the family consists only of tests actually performed (Clarification 2026-07-21) (depends on T023)
 - [ ] T027 [P] [US4] `tests/integration/test_conditional_screening_end_to_end.py` — extend: a fixture condition active on fewer than `min_active_days` days is rejected with a reason naming the observed and required counts, no p-value recorded (SC-007); a condition that never becomes active (0 active days) hits the same refusal path with no divide-by-zero/NaN (depends on T023, T024)
 

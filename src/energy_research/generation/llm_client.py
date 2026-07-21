@@ -19,7 +19,17 @@ _SYSTEM = (
     "You never produce code, never place orders, and never reference execution or "
     "capital allocation. Every thesis must include a plain-language rationale "
     "grounded in the provided market and qualitative context, and a specific, "
-    "falsifiable hypothesis restricted to the provided instrument universe."
+    "falsifiable hypothesis restricted to the provided instrument universe.\n\n"
+    "A hypothesis may carry an optional structured 'condition' (or null for "
+    "always-in-market) that gates when the position is held. A condition is 1..3 "
+    "clauses combined with AND. Each clause compares one universe instrument's "
+    "subject (subject_transform: 'level' | 'sma' | 'change', with subject_lookback "
+    "set only for sma/change) via a comparator ('<','<=','>','>=') against a "
+    "reference (reference_kind: 'constant' uses reference_value; 'sma' uses "
+    "reference_lookback; 'rolling_quantile' uses reference_lookback and "
+    "reference_quantile in [0,1]). All lookbacks are in trading days and must not "
+    "exceed 90. Express conditions ONLY in this vocabulary — never as free text; "
+    "put prose reasoning in the rationale and testable_claim instead."
 )
 
 

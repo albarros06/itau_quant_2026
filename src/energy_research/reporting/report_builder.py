@@ -20,6 +20,71 @@ from energy_research.datastore.repository import Repository
 
 log = get_logger("reporting.report_builder")
 
+_ACTIVITY_KEYS = ("in_market_days", "total_days", "entries", "exits")
+
+
+def _activity(other_metrics: dict | None) -> dict | None:
+    """The ActivityStats subset of an other_metrics blob, or None if not recorded
+    (e.g. a screening result predating 003, whose other_metrics is ``{}``)."""
+    if not other_metrics or not any(k in other_metrics for k in _ACTIVITY_KEYS):
+        return None
+    return {k: other_metrics[k] for k in _ACTIVITY_KEYS if k in other_metrics}
+
+
+def _clause_summary(clause: dict) -> str:
+    inst = clause["instrument_key"]
+    transform = clause["subject_transform"]
+    if transform == "level":
+        subject = inst
+    else:  # sma / change
+        subject = f"{transform}({inst}, {clause['subject_lookback']})"
+    kind = clause["reference_kind"]
+    if kind == "constant":
+        reference = f"{clause['reference_value']}"
+    elif kind == "sma":
+        reference = f"sma({inst}, {clause['reference_lookback']})"
+    else:  # rolling_quantile
+        reference = (
+            f"rolling_quantile({inst}, {clause['reference_lookback']}, "
+            f"q={clause['reference_quantile']})"
+        )
+    return f"{subject} {clause['comparator']} {reference}"
+
+
+def _condition_summary(hypothesis: dict) -> str | None:
+    """Deterministic plain-language rendering of a thesis's condition, or None for
+    an unconditional thesis (FR-010)."""
+    condition = hypothesis.get("condition")
+    if not condition:
+        return None
+    return "active when " + " and ".join(_clause_summary(c) for c in condition["clauses"])
+
+
+def _legs(hypothesis: dict) -> list[dict]:
+    """Traded legs and weights, derived at render time from the hypothesis — never a
+    persisted field (multi-leg-evaluation-contract.md rule 4). Equal 1/n weight for
+    long/short; +1.0/-1.0 for the two spread/relative_value legs."""
+    instruments = hypothesis.get("instruments", [])
+    direction = hypothesis.get("direction")
+    if direction in ("spread", "relative_value") and len(instruments) == 2:
+        return [
+            {"instrument_key": instruments[0], "weight": 1.0},
+            {"instrument_key": instruments[1], "weight": -1.0},
+        ]
+    if not instruments:
+        return []
+    weight = 1.0 / len(instruments)
+    return [{"instrument_key": i, "weight": weight} for i in instruments]
+
+
+def _activity_suffix(activity: dict | None) -> str:
+    if not activity:
+        return ""
+    return (
+        f" [in-market {activity.get('in_market_days')}/{activity.get('total_days')} days, "
+        f"{activity.get('entries')} entries / {activity.get('exits')} exits]"
+    )
+
 
 def _performance(bt: dict) -> dict:
     """Net-of-cost performance block; never gross-only (Principle IV)."""
@@ -31,6 +96,7 @@ def _performance(bt: dict) -> dict:
         "financing_carry": bt["financing_carry"],
         "net_return": bt["net_return"],
         "other_metrics": bt["other_metrics"],
+        "activity": _activity(bt["other_metrics"]),
     }
 
 
@@ -73,6 +139,8 @@ def build_report(
                 "rationale": thesis["rationale"],
                 "hypothesis": thesis["hypothesis"],
                 "synthetic_inputs": synthetic_inputs,
+                "condition_summary": _condition_summary(thesis["hypothesis"]),
+                "legs": _legs(thesis["hypothesis"]),
                 "screening": None
                 if screening is None
                 else {
@@ -83,6 +151,7 @@ def build_report(
                     "adjusted_threshold": screening["adjusted_threshold"],
                     "verdict": screening["verdict"],
                     "reason": screening["reason"],
+                    "activity": _activity(screening.get("other_metrics")),
                 },
                 "refinement_backtests": [_performance(b) for b in refinement_results],
                 "final_evaluation": [_performance(b) for b in final_results],
@@ -142,6 +211,10 @@ def _render_markdown(
             + synthetic,
             f"- **Rationale**: {e['rationale']}",
             f"- **Hypothesis**: {e['hypothesis'] or '(failed schema validation)'}",
+            "- **Condition**: "
+            + (e["condition_summary"] or "unconditional (always in-market)"),
+            "- **Traded legs**: "
+            + ", ".join(f"{leg['instrument_key']}@{leg['weight']:+.3f}" for leg in e["legs"]),
         ]
         if e["screening"]:
             s = e["screening"]
@@ -153,6 +226,7 @@ def _render_markdown(
                 f"- **Refinement backtest**: net {b['net_return']:+.4f} = gross "
                 f"{b['gross_return']:+.4f} − costs {b['transaction_costs']:.4f} − "
                 f"slippage {b['slippage']:.4f} − financing {b['financing_carry']:.4f}"
+                + _activity_suffix(b["activity"])
             )
         for b in e["final_evaluation"]:
             lines.append(
@@ -160,6 +234,7 @@ def _render_markdown(
                 f"{b['net_return']:+.4f} = gross {b['gross_return']:+.4f} − costs "
                 f"{b['transaction_costs']:.4f} − slippage {b['slippage']:.4f} − "
                 f"financing {b['financing_carry']:.4f}"
+                + _activity_suffix(b["activity"])
             )
         if e["evaluation_ledger"]:
             led = e["evaluation_ledger"]

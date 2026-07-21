@@ -11,7 +11,9 @@ from __future__ import annotations
 
 from energy_research.backtesting.costs import CostModel
 from energy_research.backtesting.engine import run_backtest
+from energy_research.common.conditions import condition_from_hypothesis
 from energy_research.common.logging import get_logger, kv
+from energy_research.common.signals import hypothesis_returns
 from energy_research.config.settings import PipelineConfig
 from energy_research.datastore.ledger import EvaluationLedger, SpendOutcome
 from energy_research.datastore.repository import Repository
@@ -26,6 +28,28 @@ class BacktestingService:
         self._config = config
         self._cost_model = CostModel(config.backtesting)
 
+    def _activity_gate(self, data, hypothesis: dict, split: str) -> str | None:
+        """Refuse a condition active on too few days of ``split`` (FR-006). Returns a
+        rejection reason naming both counts, or None if the condition clears the bar."""
+        min_active = getattr(self._config.conditional_screening.min_active_days, split)
+        _, activity = hypothesis_returns(
+            data.prices,
+            hypothesis["instruments"],
+            hypothesis["direction"],
+            condition_from_hypothesis(hypothesis),
+        )
+        if activity.in_market_days >= min_active:
+            return None
+        log.warning(
+            "under-observed condition refused %s",
+            kv(split=split, in_market_days=activity.in_market_days, required=min_active),
+        )
+        return (
+            f"condition active on only {activity.in_market_days} {split}-split days, below "
+            f"the required minimum {min_active} — refused before backtesting, no result "
+            "persisted (FR-006)"
+        )
+
     def run_refinement(self, thesis_id: str) -> dict:
         """Refinement-split backtest for a screening survivor; updates status to
         ``backtested`` or ``rejected_underperform``."""
@@ -37,6 +61,10 @@ class BacktestingService:
                 "not be backtested (FR-013, SC-003)"
             )
         data = self._repo.read_refinement_data(thesis["cycle_id"], self._config.universe_keys)
+        gate = self._activity_gate(data, thesis["hypothesis"], "refinement")
+        if gate is not None:
+            self._repo.update_thesis_status(thesis_id, "rejected_underperform", gate)
+            return {"net_return": None, "gross_return": None}
         result = run_backtest(data, thesis["hypothesis"], self._cost_model)
         self._repo.insert_backtest_result(
             thesis_id=thesis_id,
@@ -88,7 +116,14 @@ class BacktestingService:
             )
             return "refused"
 
+        # The final-evaluation read is ledger-gated (FR-019), so the activity gate
+        # necessarily runs after the spend; an under-observed final thesis is
+        # recorded rejected_after_final with no BacktestResult (turnover-cost rule 5).
         data = self._repo.read_final_evaluation_data(thesis["cycle_id"], self._config.universe_keys)
+        gate = self._activity_gate(data, thesis["hypothesis"], "final_evaluation")
+        if gate is not None:
+            self._repo.update_thesis_status(thesis_id, "rejected_after_final", gate)
+            return "rejected_after_final"
         result = run_backtest(data, thesis["hypothesis"], self._cost_model)
         self._repo.insert_backtest_result(
             thesis_id=thesis_id,
