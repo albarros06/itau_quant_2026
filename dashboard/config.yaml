@@ -1,0 +1,35 @@
+# Dashboard configuration (Constitution Principle VI: Configuration Over Hardcoding).
+# The dashboard is a read-only consumer of pipeline output; every path, limit,
+# threshold, and breakpoint it depends on lives here, never in the components.
+
+data:
+  # Source of truth for db_path / lake_dir / reports_dir + the instrument universe.
+  # The dashboard resolves these via energy_research.config.load_config(); it never
+  # hardcodes a data path of its own.
+  pipeline_config: config/default.yaml
+
+display:
+  thesis_page_size: 25 # rows per page in the Thesis Browser feed
+  cycle_list_limit: 20 # past cycles listed in Cycle History
+  overview_spark_points: 60 # trailing points drawn in an overview sparkline
+  equity_min_points: 3 # below this, reconstruction is refused (labeled), not drawn
+  default_cycle: latest # 'latest' selects the most recently generated report
+
+# Which instruments the Market Overview may surface, by role. Only instruments that
+# are actually present (real or synthetic) in the lake are rendered; nothing is
+# fabricated for a role whose series is absent (Principle IV / VII).
+overview:
+  spot_key: BR_POWER_SE_SPOT
+  reservoir_key: BR_HYDRO_SE_RESERVOIR
+  forward_front_key: BR_POWER_SE_FWD_M1
+  forward_back_key: BR_POWER_SE_FWD_M3
+  fx_key: BRL_USD_FX
+  rate_key: BR_DI_1Y
+
+# Net-return colour thresholds for status/perf coding (fractions, not bps).
+thresholds:
+  strong_net_return: 0.05 # net return at/above this reads as clearly strong
+
+viewport:
+  mobile_max_px: 640 # <= this width is the mobile layout (bottom nav, 1 column)
+  desktop_min_px: 1200 # >= this width unlocks the master-detail preview pane
