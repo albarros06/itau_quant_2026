@@ -10,7 +10,7 @@ from configuration instead of from a purpose-written Python module.
 ```text
 provider_id: str
 connector_kind: "declarative"
-credential:
+credential:                    # OPTIONAL: omit entirely for public open-data endpoints —
   env_var_name: str            # resolved at call time; never logged (FR-001)
   purpose: "market_data" | "qualitative_context"
 base_url: str
@@ -33,6 +33,18 @@ endpoints:
                                    # is valid when a vendor's rows are arrays, not keyed objects.
     ts_format: str | None         # optional strptime pattern (e.g. "%d/%m/%Y") for vendors whose
                                    # timestamp string is not ISO-8601. Omit for ISO-8601 timestamps.
+    response_format: "json" | "csv"  # default "json". "csv" parses the body as delimited text;
+                                   # each row becomes a dict keyed by the header row, so the same
+                                   # JMESPath field_mapping applies (for open-data portals that
+                                   # publish plain CSV with no JSON API, e.g. ONS's S3 datasets).
+    csv_delimiter: str             # default ";" (the Brazilian open-data convention)
+    csv_encoding: str              # default "utf-8" (set "latin-1" for ISO-8859-1 vendors)
+    row_filter: str | None         # optional JMESPath predicate per element; only truthy elements
+                                   # are kept (e.g. "nom_subsistema == 'SUDESTE'" for files that
+                                   # interleave many regions in one response)
+    aggregate: "daily_mean" | None # optional: collapse sub-daily observations to one per calendar
+                                   # day (the mean, stamped midnight UTC) — e.g. ONS's semi-hourly
+                                   # CMO -> the standard daily-average figure. Market data only.
 pagination:
   mode: "none" | "offset" | "cursor"
   # mode="offset": limit_param, offset_param
@@ -45,7 +57,10 @@ pagination:
    time and attaches it as an `Authorization: Bearer <value>` header (the only auth scheme this
    contract supports — see Limitations). A missing/empty env var raises a visible
    `CredentialError` naming the vendor and env-var name; it is never silently treated as "no
-   auth" (FR-001, Edge Case).
+   auth" (FR-001, Edge Case). A descriptor may omit the `credential` block entirely for public
+   open-data endpoints — then NO Authorization header is sent (some hosts, e.g. plain S3, reject
+   a stray Bearer header). Omission is an explicit authoring decision, not a fallback: a
+   credential that IS configured but fails to resolve still raises.
 2. **Fetch**: for `fetch_series(category, instrument_key, since)` /
    `fetch_context(category, since)`, the connector renders `path_template` with the supplied
    parameters, issues the request via `httpx`, locates the elements array within the raw response

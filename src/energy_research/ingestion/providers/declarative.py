@@ -11,6 +11,8 @@ never import ``ops_agent`` (contracts/ops-agent-boundary.md rule 1).
 
 from __future__ import annotations
 
+import csv
+import io
 import os
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -44,6 +46,21 @@ class _EndpointSpec(_StrictModel):
     # strptime pattern for non-ISO timestamp strings (e.g. "%d/%m/%Y"). None
     # preserves the original datetime.fromisoformat parsing.
     ts_format: str | None = None
+    # "csv" parses the response body as delimited text: each row becomes a dict
+    # keyed by the header row, so the same JMESPath field_mapping applies. "json"
+    # (default) preserves the original behavior. Needed for open-data portals that
+    # publish plain CSV files with no JSON API (e.g. ONS's S3-hosted datasets).
+    response_format: Literal["json", "csv"] = "json"
+    csv_delimiter: str = ";"
+    csv_encoding: str = "utf-8"
+    # JMESPath predicate evaluated per element; only truthy elements are kept.
+    # For files that interleave many instruments/regions in one response (e.g.
+    # ONS files carry all four subsystems: nom_subsistema == 'SUDESTE').
+    row_filter: str | None = None
+    # "daily_mean" collapses sub-daily observations to one per calendar day (the
+    # mean), e.g. ONS's semi-hourly CMO -> the standard daily-average figure.
+    # None preserves observations exactly as the provider publishes them.
+    aggregate: Literal["daily_mean"] | None = None
 
 
 class _PaginationSpec(_StrictModel):
@@ -59,7 +76,12 @@ class DataSourceDescriptor(_StrictModel):
     ``ops_agent`` (see module docstring)."""
 
     provider_id: str
-    credential: _CredentialReference
+    # None means the vendor is a public open-data endpoint and NO Authorization
+    # header is sent (some hosts, e.g. plain S3, reject a stray Bearer header).
+    # This does not weaken contract rule 1: a credential that IS configured but
+    # fails to resolve still raises CredentialError — only an explicitly absent
+    # credential block means "public".
+    credential: _CredentialReference | None = None
     base_url: str
     endpoints: list[_EndpointSpec] = Field(min_length=1)
     pagination: _PaginationSpec = _PaginationSpec()
@@ -106,6 +128,29 @@ def _parse_ts(raw: str, ts_format: str | None) -> datetime:
     return ts
 
 
+def _daily_mean(observations: list[RawObservation]) -> list[RawObservation]:
+    """Collapse sub-daily observations to one per (instrument, calendar day): the
+    mean of that day's values, stamped at midnight UTC. Provenance survives:
+    'synthetic' wins for the day if any contributing observation was synthetic."""
+    groups: dict[tuple[str, str, Any], list[RawObservation]] = {}
+    for obs in observations:
+        groups.setdefault((obs.category, obs.instrument_key, obs.ts.date()), []).append(obs)
+    result = [
+        RawObservation(
+            category=category,
+            instrument_key=instrument_key,
+            ts=datetime(day.year, day.month, day.day, tzinfo=UTC),
+            value=sum(o.value for o in members) / len(members),
+            provenance="synthetic"
+            if any(o.provenance == "synthetic" for o in members)
+            else "real",
+        )
+        for (category, instrument_key, day), members in groups.items()
+    ]
+    result.sort(key=lambda o: (o.instrument_key, o.ts))
+    return result
+
+
 class DeclarativeConnector:
     """Satisfies both ``MarketDataConnector`` and ``QualitativeContextConnector``
     (contracts/data-connector.md) purely from ``self._descriptor``."""
@@ -126,16 +171,35 @@ class DeclarativeConnector:
         )
 
     def _headers(self) -> dict[str, str]:
+        if self._descriptor.credential is None:
+            return {}  # public open-data endpoint: no auth header at all
         token = _resolve_credential(self._descriptor.credential, self.provider_id)
         return {"Authorization": f"Bearer {token}"}
 
     def _request(self, endpoint: _EndpointSpec, path_params: dict, query: dict) -> Any:
         path = endpoint.path_template.format(**path_params)
+        # params=None when there are no pagination params: httpx REPLACES a URL's
+        # embedded query string with `params` whenever it is not None, which would
+        # silently strip query strings baked into path_template (e.g. BACEN's
+        # ?formato=json&dataInicial=...).
         response = self._client.request(
-            endpoint.method, path, headers=self._headers(), params=query
+            endpoint.method, path, headers=self._headers(), params=query or None
         )
         response.raise_for_status()
+        if endpoint.response_format == "csv":
+            text = response.content.decode(endpoint.csv_encoding)
+            reader = csv.DictReader(io.StringIO(text), delimiter=endpoint.csv_delimiter)
+            # Strip stray cell whitespace (ONS pads short subsystem codes: "N ").
+            return [
+                {(k or "").strip(): (v or "").strip() for k, v in row.items()}
+                for row in reader
+            ]
         return response.json()
+
+    def _filtered(self, endpoint: _EndpointSpec, elements: list[Any]) -> list[Any]:
+        if endpoint.row_filter is None:
+            return elements
+        return [e for e in elements if jmespath.search(endpoint.row_filter, e)]
 
     def _fetch_all_elements(self, endpoint: _EndpointSpec, path_params: dict) -> list[Any]:
         pagination = self._descriptor.pagination
@@ -143,7 +207,7 @@ class DeclarativeConnector:
 
         if pagination.mode == "none":
             payload = self._request(endpoint, path_params, {})
-            return _elements_of(payload, endpoint.results_path)
+            return self._filtered(endpoint, _elements_of(payload, endpoint.results_path))
 
         if pagination.mode == "offset":
             offset = 0
@@ -157,7 +221,7 @@ class DeclarativeConnector:
                 page = _elements_of(payload, endpoint.results_path)
                 if not page:
                     break
-                elements.extend(page)
+                elements.extend(self._filtered(endpoint, page))
                 offset += len(page)
             return elements
 
@@ -168,7 +232,8 @@ class DeclarativeConnector:
                 if cursor is not None and pagination.cursor_param:
                     query[pagination.cursor_param] = cursor
                 payload = self._request(endpoint, path_params, query)
-                elements.extend(_elements_of(payload, endpoint.results_path))
+                page = _elements_of(payload, endpoint.results_path)
+                elements.extend(self._filtered(endpoint, page))
                 next_cursor = (
                     jmespath.search(pagination.next_cursor_path, payload)
                     if pagination.next_cursor_path
@@ -203,6 +268,8 @@ class DeclarativeConnector:
                     provenance=jmespath.search(mapping["provenance"], element) or "real",
                 )
             )
+        if endpoint.aggregate == "daily_mean":
+            observations = _daily_mean(observations)
         return observations
 
     def fetch_context(self, category: str, since: datetime | None = None) -> list[RawContextDoc]:
@@ -228,7 +295,8 @@ class DeclarativeConnector:
 
     def health_check(self) -> ConnectorHealth:
         try:
-            _resolve_credential(self._descriptor.credential, self.provider_id)
+            if self._descriptor.credential is not None:
+                _resolve_credential(self._descriptor.credential, self.provider_id)
         except CredentialError as exc:
             return ConnectorHealth(ok=False, detail=str(exc))
         endpoint = self._descriptor.endpoints[0]
