@@ -30,7 +30,9 @@ def block_bootstrap_test(
         return TestResult("block_bootstrap", statistic_value=0.0, p_value=1.0)
 
     observed_mean = returns.mean()
-    std = returns.std(ddof=0)
+    # Sample std (ddof=1): the return series is a sample, not the population; keep
+    # this in lockstep with backtesting.engine's Sharpe (same convention).
+    std = returns.std(ddof=1)
     statistic = float(np.sqrt(n) * observed_mean / std) if std > 0 else 0.0
 
     # Resample under the null: demean, then draw circular blocks.

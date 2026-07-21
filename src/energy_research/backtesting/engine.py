@@ -14,7 +14,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from energy_research.backtesting.costs import TRADING_DAYS_PER_YEAR, CostModel
-from energy_research.common.signals import hypothesis_returns
+from energy_research.common.signals import hypothesis_equity_curve, hypothesis_returns
 from energy_research.datastore.repository import SplitScopedData
 
 _ALLOWED_SPLITS = ("refinement", "final_evaluation")
@@ -56,16 +56,28 @@ def run_backtest(
             "(e.g. a value_clamp on the provider descriptor) rather than backtesting it"
         )
 
-    gross = float(returns.sum())
+    # Buy-and-hold over the split window: the position is entered once and exited
+    # once (the cost model's 2-leg trade count), so the window return is the
+    # compounded price move of each leg — not the arithmetic sum of daily returns,
+    # which would model a daily-rebalanced book and understate turnover costs by a
+    # factor of ~n_days. See signals.hypothesis_equity_curve.
+    equity = hypothesis_equity_curve(data.prices, instruments, direction).to_numpy(dtype=float)
+    gross = float(equity[-1] - 1.0)
     n_legs = 2 if direction in ("spread", "relative_value") else 1
     costs = cost_model.compute(n_legs=n_legs, n_days=n_days)
     net = gross - costs.total
 
     daily = returns.to_numpy(dtype=float)
-    std = daily.std(ddof=0)
+    # Sample std (ddof=1): a backtest window is a sample of possible outcomes, not
+    # the whole population, so correct for small-sample under-dispersion. Kept in
+    # lockstep with screening.methods.block_bootstrap_test, which uses the same
+    # convention — the two must never diverge.
+    std = daily.std(ddof=1) if daily.size > 1 else 0.0
     sharpe = float(daily.mean() / std * np.sqrt(TRADING_DAYS_PER_YEAR)) if std > 0 else 0.0
-    cumulative = np.cumsum(daily)
-    drawdown = float((np.maximum.accumulate(cumulative) - cumulative).max()) if n_days else 0.0
+    # Peak-to-trough drawdown on the same compounded equity curve as the gross
+    # return, as a fraction of the running peak.
+    running_max = np.maximum.accumulate(equity)
+    drawdown = float((1.0 - equity / running_max).max()) if n_days else 0.0
 
     return BacktestComputation(
         split_type=data.split_type,
@@ -80,5 +92,6 @@ def run_backtest(
             "n_days": n_days,
             "date_range": list(data.date_range),
             "any_synthetic_input": data.any_synthetic,
+            "calendar_dropped_dates": data.misaligned_dropped,
         },
     )
