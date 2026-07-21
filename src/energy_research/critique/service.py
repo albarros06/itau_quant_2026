@@ -27,7 +27,12 @@ _SYSTEM = (
     "energy markets. You produce structured critiques only: specific, concrete "
     "weaknesses grounded in the recorded screening and backtest evidence, plus a "
     "concrete suggested direction for the next refinement. You never produce code "
-    "and never reference execution or capital."
+    "and never reference execution or capital.\n\n"
+    "A refined thesis may propose or adjust a structured 'condition' (or null for "
+    "always-in-market): 1..3 AND-combined clauses, each comparing a universe "
+    "instrument's subject (level/sma/change) against a reference (constant/sma/"
+    "rolling_quantile), lookbacks in trading days up to 90. Suggest condition "
+    "changes only in this closed vocabulary — never as free text."
 )
 
 

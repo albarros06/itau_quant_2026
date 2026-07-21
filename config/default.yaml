@@ -91,6 +91,14 @@ refinement:
   max_refinement_depth_per_lineage: 2
   max_lineages_per_run: 5
 
+conditional_screening:
+  max_clauses: 3
+  max_lookback_days: 90
+  min_active_days:
+    discovery: 100
+    refinement: 60
+    final_evaluation: 30
+
 generation:
   backend: gemini # or: deterministic_stub | anthropic
   model: gemini-2.5-flash # gemini-2.5-flash-lite is no longer available to new API keys

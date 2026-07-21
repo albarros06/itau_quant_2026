@@ -59,3 +59,27 @@ def test_artifact_is_self_contained_for_every_thesis(report_artifact):
     for thesis_id, status in statuses.items():
         section = _section(text, thesis_id)
         assert "**Final status**:" in section and status in section
+
+
+def test_every_entry_trades_exactly_its_declared_legs(report_artifact, pipeline_config):
+    """SC-005: each entry lists every traded leg with a weight and no untraded
+    instrument — closing the gap where a report implied exposure it never traded."""
+    text, result, _ = report_artifact
+    repo = Repository(pipeline_config.datastore.db_path, pipeline_config.datastore.lake_dir)
+    try:
+        theses = repo.theses_for_cycle(result.cycle_id)
+    finally:
+        repo.close()
+    checked = False
+    for thesis in theses:
+        instruments = thesis["hypothesis"].get("instruments", [])
+        if not instruments:
+            continue
+        section = _section(text, thesis["thesis_id"])
+        legs_line = next(line for line in section.splitlines() if "**Traded legs**:" in line)
+        for inst in instruments:
+            assert inst in legs_line, f"{inst} declared but not shown as a traded leg"
+        # Exactly the declared legs — no extra (untraded) instrument tagged in.
+        assert legs_line.count("@") == len(instruments)
+        checked = True
+    assert checked

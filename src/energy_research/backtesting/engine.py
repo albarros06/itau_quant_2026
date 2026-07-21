@@ -14,7 +14,8 @@ from dataclasses import dataclass
 import numpy as np
 
 from energy_research.backtesting.costs import TRADING_DAYS_PER_YEAR, CostModel
-from energy_research.common.signals import hypothesis_equity_curve, hypothesis_returns
+from energy_research.common.conditions import condition_from_hypothesis
+from energy_research.common.signals import hypothesis_returns
 from energy_research.datastore.repository import SplitScopedData
 
 _ALLOWED_SPLITS = ("refinement", "final_evaluation")
@@ -41,7 +42,8 @@ def run_backtest(
         )
     instruments = hypothesis["instruments"]
     direction = hypothesis["direction"]
-    returns = hypothesis_returns(data.prices, instruments, direction)
+    condition = condition_from_hypothesis(hypothesis)
+    returns, activity = hypothesis_returns(data.prices, instruments, direction, condition)
     n_days = len(returns)
     if n_days == 0:
         raise ValueError(f"no {data.split_type}-split observations for instruments {instruments}")
@@ -56,28 +58,29 @@ def run_backtest(
             "(e.g. a value_clamp on the provider descriptor) rather than backtesting it"
         )
 
-    # Buy-and-hold over the split window: the position is entered once and exited
-    # once (the cost model's 2-leg trade count), so the window return is the
-    # compounded price move of each leg — not the arithmetic sum of daily returns,
-    # which would model a daily-rebalanced book and understate turnover costs by a
-    # factor of ~n_days. See signals.hypothesis_equity_curve.
-    equity = hypothesis_equity_curve(data.prices, instruments, direction).to_numpy(dtype=float)
-    gross = float(equity[-1] - 1.0)
-    n_legs = 2 if direction in ("spread", "relative_value") else 1
-    costs = cost_model.compute(n_legs=n_legs, n_days=n_days)
+    # Daily-position model: the (conditional, masked) return stream is summed and
+    # costs scale with realized turnover (entries/exits/in-market days, 003
+    # turnover-cost-contract.md). This resolves the pre-003 gross/cost mismatch by
+    # making costs match the daily-position gross — the same mismatch the earlier
+    # buy-and-hold change fixed from the other side; turnover costs supersede it.
+    gross = float(returns.sum())
+    n_legs = 2 if direction in ("spread", "relative_value") else len(instruments)
+    costs = cost_model.compute(
+        n_legs=n_legs,
+        entries=activity.entries,
+        exits=activity.exits,
+        in_market_days=activity.in_market_days,
+    )
     net = gross - costs.total
 
     daily = returns.to_numpy(dtype=float)
     # Sample std (ddof=1): a backtest window is a sample of possible outcomes, not
-    # the whole population, so correct for small-sample under-dispersion. Kept in
-    # lockstep with screening.methods.block_bootstrap_test, which uses the same
-    # convention — the two must never diverge.
+    # the whole population. Kept in lockstep with screening.methods.block_bootstrap_test,
+    # which uses the same convention — the two must never diverge.
     std = daily.std(ddof=1) if daily.size > 1 else 0.0
     sharpe = float(daily.mean() / std * np.sqrt(TRADING_DAYS_PER_YEAR)) if std > 0 else 0.0
-    # Peak-to-trough drawdown on the same compounded equity curve as the gross
-    # return, as a fraction of the running peak.
-    running_max = np.maximum.accumulate(equity)
-    drawdown = float((1.0 - equity / running_max).max()) if n_days else 0.0
+    cumulative = np.cumsum(daily)  # additive equity curve, consistent with summed gross
+    drawdown = float((np.maximum.accumulate(cumulative) - cumulative).max()) if n_days else 0.0
 
     return BacktestComputation(
         split_type=data.split_type,
@@ -93,5 +96,6 @@ def run_backtest(
             "date_range": list(data.date_range),
             "any_synthetic_input": data.any_synthetic,
             "calendar_dropped_dates": data.misaligned_dropped,
+            **activity.as_dict(),
         },
     )

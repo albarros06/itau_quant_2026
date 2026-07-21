@@ -527,6 +527,7 @@ class Repository:
         adjusted_threshold: float,
         verdict: str,
         reason: str,
+        other_metrics: dict | None = None,
     ) -> str:
         if verdict not in ("pass", "fail"):
             raise ValueError(f"screening verdict must be pass/fail, got {verdict!r}")
@@ -537,7 +538,8 @@ class Repository:
             self._conn.execute(
                 "INSERT INTO screening_results (result_id, thesis_id, method,"
                 " statistic_value, p_value, multiplicity_method, adjusted_threshold,"
-                " verdict, reason, evaluated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " verdict, reason, other_metrics, evaluated_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     result_id,
                     thesis_id,
@@ -548,6 +550,7 @@ class Repository:
                     adjusted_threshold,
                     verdict,
                     reason,
+                    json.dumps(other_metrics or {}),
                     _now(),
                 ),
             )
@@ -558,7 +561,11 @@ class Repository:
             "SELECT * FROM screening_results WHERE thesis_id = ? ORDER BY evaluated_at DESC",
             (thesis_id,),
         ).fetchone()
-        return dict(row) if row else None
+        if row is None:
+            return None
+        result = dict(row)
+        result["other_metrics"] = json.loads(result["other_metrics"])
+        return result
 
     def insert_backtest_result(
         self,

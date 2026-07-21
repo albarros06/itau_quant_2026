@@ -110,6 +110,25 @@ class BacktestingConfig(StrictModel):
     promotion_net_return_threshold: float = 0.0
 
 
+class MinActiveDaysConfig(StrictModel):
+    """Per-split floor on a condition's active days before it may be evaluated."""
+
+    discovery: int = Field(default=100, ge=0)
+    refinement: int = Field(default=60, ge=0)
+    final_evaluation: int = Field(default=30, ge=0)
+
+
+class ConditionalScreeningConfig(StrictModel):
+    """Bounds on the conditional-signal vocabulary and the under-observation gate
+    (003 data-model.md §ConditionalScreeningConfig). Omitting the section entirely
+    falls back to these Clarifications-session defaults — backward compatible with
+    every pre-003 config on disk (FR-012/FR-013)."""
+
+    max_clauses: int = Field(default=3, ge=1)
+    max_lookback_days: int = Field(default=90, gt=0)
+    min_active_days: MinActiveDaysConfig = MinActiveDaysConfig()
+
+
 class RefinementConfig(StrictModel):
     max_refinement_depth_per_lineage: int = Field(ge=0)
     max_lineages_per_run: int = Field(ge=1)
@@ -146,6 +165,7 @@ class PipelineConfig(StrictModel):
     screening: ScreeningConfig
     backtesting: BacktestingConfig
     refinement: RefinementConfig
+    conditional_screening: ConditionalScreeningConfig = ConditionalScreeningConfig()
     generation: GenerationConfig = GenerationConfig()
     reproducibility: ReproducibilityConfig = ReproducibilityConfig()
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from energy_research.common import seed as seed_mod
+from energy_research.common.conditions import condition_from_hypothesis
 from energy_research.common.logging import get_logger, kv
 from energy_research.common.signals import hypothesis_returns
 from energy_research.config.settings import PipelineConfig
@@ -49,23 +50,49 @@ class ScreeningService:
 
         data = self._repo.read_discovery_data(cycle_id, self._config.universe_keys)
         rng = seed_mod.get_rng()
+        min_active = self._config.conditional_screening.min_active_days.discovery
 
-        tests: list[methods.TestResult] = []
+        outcome = ScreeningOutcome([], [])
+
+        # First pass: compute each thesis's (conditional) return stream and activity.
+        # A condition active on fewer than min_active discovery-split days is refused
+        # here — before any statistic exists — and never enters the multiplicity
+        # family (contracts/conditional-signal-contract.md rules 10–11).
+        tested: list[tuple[dict, object, object]] = []  # (thesis, returns array, activity)
         for thesis in theses:
             hyp = thesis["hypothesis"]
-            returns = hypothesis_returns(
-                data.prices, hyp["instruments"], hyp["direction"]
-            ).to_numpy()
-            tests.append(
-                methods.block_bootstrap_test(returns, rng, cfg.n_bootstrap, cfg.block_size)
+            condition = condition_from_hypothesis(hyp)
+            returns_s, activity = hypothesis_returns(
+                data.prices, hyp["instruments"], hyp["direction"], condition
             )
+            if activity.in_market_days < min_active:
+                reason = (
+                    f"condition active on only {activity.in_market_days} discovery-split "
+                    f"days, below the required minimum {min_active} — refused before "
+                    "testing and excluded from the multiplicity family (FR-006)"
+                )
+                self._repo.update_thesis_status(thesis["thesis_id"], "screened_rejected", reason)
+                outcome.failed_thesis_ids.append(thesis["thesis_id"])
+                log.warning(
+                    "under-observed condition refused %s",
+                    kv(
+                        thesis_id=thesis["thesis_id"],
+                        in_market_days=activity.in_market_days,
+                        required=min_active,
+                    ),
+                )
+                continue
+            tested.append((thesis, returns_s.to_numpy(), activity))
 
+        tests: list[methods.TestResult] = [
+            methods.block_bootstrap_test(returns, rng, cfg.n_bootstrap, cfg.block_size)
+            for _, returns, _ in tested
+        ]
         decision = multiplicity.apply(
             cfg.multiplicity_method, [t.p_value for t in tests], cfg.alpha
         )
 
-        outcome = ScreeningOutcome([], [])
-        for thesis, test, passed in zip(theses, tests, decision.passes, strict=True):
+        for (thesis, _, activity), test, passed in zip(tested, tests, decision.passes, strict=True):
             verdict = "pass" if passed else "fail"
             comparison = "<=" if passed else ">"
             reason = (
@@ -84,6 +111,7 @@ class ScreeningService:
                 adjusted_threshold=decision.adjusted_threshold,
                 verdict=verdict,
                 reason=reason,
+                other_metrics=activity.as_dict(),
             )
             if passed:
                 self._repo.update_thesis_status(thesis["thesis_id"], "screened_passed", reason)

@@ -62,3 +62,26 @@ class TestMultiplicity:
 
     def test_empty_family(self):
         assert benjamini_hochberg([], 0.1).passes == []
+
+
+class TestFamilyExcludesRefusals:
+    """A thesis refused by the min_active_days gate never enters the family: the
+    family size m is exactly the count of tests actually performed, so dropping a
+    refusal changes the BH/Bonferroni bar (Clarification 2026-07-21, SC-007)."""
+
+    def test_bh_threshold_depends_on_family_size(self):
+        performed = [0.02, 0.03, 0.05]  # a refused thesis contributed no p-value
+        with_refusal_counted = benjamini_hochberg(performed + [0.9], alpha=0.1)
+        family_of_performed = benjamini_hochberg(performed, alpha=0.1)
+        # m=3 vs m=4 give different bars — the refusal must not inflate m.
+        assert family_of_performed.adjusted_threshold != pytest.approx(
+            with_refusal_counted.adjusted_threshold
+        )
+        # With only the performed tests, the strictest (rank-1) bar is alpha/m = 0.1/3.
+        assert benjamini_hochberg([0.9, 0.95, 0.99], alpha=0.1).adjusted_threshold == pytest.approx(
+            0.1 / 3
+        )
+
+    def test_bonferroni_divides_by_tests_performed(self):
+        assert bonferroni([0.01, 0.02], alpha=0.06).adjusted_threshold == pytest.approx(0.03)
+        assert bonferroni([0.01, 0.02, 0.03], alpha=0.06).adjusted_threshold == pytest.approx(0.02)

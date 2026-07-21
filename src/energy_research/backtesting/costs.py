@@ -28,18 +28,31 @@ class CostModel:
     def __init__(self, config: BacktestingConfig):
         self._config = config
 
-    def compute(self, *, n_legs: int, n_days: int, gross_exposure: float = 1.0) -> CostBreakdown:
-        """Costs for a hold-for-the-window strategy.
+    def compute(
+        self,
+        *,
+        n_legs: int,
+        entries: int,
+        exits: int,
+        in_market_days: int,
+        gross_exposure: float = 1.0,
+    ) -> CostBreakdown:
+        """Turnover-aware costs (003 contracts/turnover-cost-contract.md).
 
-        Each leg trades twice (entry + exit); transaction costs and slippage are
-        bps of traded notional; financing/carry accrues on gross exposure for the
-        holding period at the configured annual rate.
+        Transaction costs and slippage scale with realized entry/exit events per leg
+        (``traded_notional = (entries + exits) * n_legs``), not a fixed round trip;
+        financing/carry accrues only on in-market days. An unconditional always-in
+        strategy (``entries=1, exits=1, in_market_days=n_days``) reproduces the
+        pre-003 ``2 * n_legs`` notional and full-window financing exactly (FR-012).
         """
-        traded_notional = 2.0 * n_legs * gross_exposure
+        traded_notional = (entries + exits) * n_legs * gross_exposure
         transaction_costs = traded_notional * self._config.transaction_cost_bps / 1e4
         slippage = traded_notional * self._config.slippage_bps / 1e4
         financing = (
-            gross_exposure * self._config.financing_annual_rate * n_days / TRADING_DAYS_PER_YEAR
+            gross_exposure
+            * self._config.financing_annual_rate
+            * in_market_days
+            / TRADING_DAYS_PER_YEAR
         )
         return CostBreakdown(
             transaction_costs=float(transaction_costs),
