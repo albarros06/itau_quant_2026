@@ -32,6 +32,25 @@ theses must trade exactly the legs they declare."
   condition patterns actually emitted by the live LLM (corpus in Assumptions), not a
   general indicator language.
 
+## Clarifications
+
+### Session 2026-07-21
+
+- Q: May condition indicators use signal data from before the evaluated split (pre-split
+  history for warmup), or only the split's own data? → A: Strict in-split warmup —
+  indicators are computed exclusively from the split's own data; warmup days are
+  out-of-market; the structural split-scoped read API is unchanged by this feature.
+- Q: Default values for the `min_active_days` gate? → A: Per-split absolute counts —
+  discovery 100, refinement 60, final evaluation 30 (each independently configurable).
+- Q: Is `change(n)` the n-day difference or the rolling mean of daily changes? → A: A
+  single transform, `change(n)` = value(t) − value(t−n). "Mean daily change over n days"
+  patterns are covered by sign-equivalence (mean of last n daily diffs = change(n)/n);
+  the generation prompt directs thresholds to be stated as n-day total change.
+- Q: Do inactivity-refused theses count in the multiplicity family? → A: No — the
+  BH/Bonferroni family consists of tests actually performed. Inactivity refusals (like
+  schema failures) never enter the family: the gate depends only on activity counts,
+  never on returns or p-values, so exclusion cannot bias the surviving tests.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - A thesis's condition is actually tested (Priority: P1)
@@ -216,7 +235,8 @@ is recorded for it.
 - **FR-002**: The condition vocabulary MUST consist of 1..K clauses (K configurable,
   default 3) combined with all-of semantics, where each clause compares a **subject** — a
   transform of one universe instrument's series: `level`, `sma(n)`, or `change(n)`
-  (n-day difference or n-day rolling mean of daily changes) — against a **reference**:
+  (the n-day difference, value(t) − value(t−n); "mean daily change" phrasings map via
+  sign-equivalence, Clarification 2026-07-21) — against a **reference**:
   a constant, `sma(n)` of the same series, or `rolling_quantile(n, q)` of the same series
   (q ∈ [0,1]; q=0 expresses "n-day minimum") — using comparators `<, <=, >, >=`. Lookbacks
   MUST be bounded by configuration. This vocabulary is the smallest cover of the observed
@@ -229,16 +249,26 @@ is recorded for it.
   outside the provided split-scoped panel.
 - **FR-004**: Evaluation MUST be lookahead-free: a clause's decision on day t may use only
   observations dated ≤ t, and the resulting exposure applies from day t+1. Indicator
-  warmup days (fewer than n observations available) are out-of-market.
+  warmup days (fewer than n observations available) are out-of-market. Warmup is strictly
+  in-split: indicators are computed exclusively from the split's own data, never from
+  observations before the split's start date — the structural split-scoped read API is
+  unchanged by this feature (Clarification 2026-07-21).
 - **FR-005**: Screening MUST test the conditional strategy's return stream (position ×
   leg returns) on discovery-split data using the existing statistical standard
   (block bootstrap, one-sided, with mandatory multiplicity control across the wave's
   family). Conditional variants count in the same BH/Bonferroni family as any other
-  thesis; there is no separate, weaker track.
+  thesis; there is no separate, weaker track. The family consists of tests actually
+  performed: theses refused by the FR-006 inactivity gate (or by schema validation)
+  never enter the family — no p-value exists for them, and the gate depends only on
+  activity counts, never on returns, so exclusion cannot bias the surviving tests
+  (Clarification 2026-07-21).
 - **FR-006**: A configurable `min_active_days` gate MUST reject (with a reason naming
   observed vs required counts) any thesis whose condition is active on fewer days of the
   split being evaluated; no statistic or backtest result is recorded for it. This gate
-  applies to discovery (screening), refinement, and final-evaluation independently.
+  applies to discovery (screening), refinement, and final-evaluation independently, with
+  per-split defaults of 100 / 60 / 30 active days respectively (Clarification
+  2026-07-21; the discovery default sizes to ~ten of the screening bootstrap's 10-day
+  blocks).
 - **FR-007**: The cost model MUST charge transaction costs and slippage per
   entry/exit event per leg (per-side bps of notional) and accrue financing/carry only on
   in-market days. Unconditional always-in strategies therefore pay exactly one entry and
@@ -316,7 +346,7 @@ is recorded for it.
 
 - **Observed condition corpus** (from live Gemini cycles in `data/research.sqlite`,
   2026-07-21) that the FR-002 vocabulary must cover — patterns seen: "5-day SMA of daily
-  returns is negative" (`change`/`sma` + `< 0`), "level below its 20-/60-day SMA"
+  returns is negative" (`change(5) < 0`, via sign-equivalence), "level below its 20-/60-day SMA"
   (`level < sma(n)`), "level declined over the past 5 days" (`change(5) < 0`), "level
   below its 90-day minimum" (`level <= rolling_quantile(90, 0)`), "below its 20th
   percentile over N days" (`level < rolling_quantile(n, 0.2)`), "ENA below median /
