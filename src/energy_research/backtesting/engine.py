@@ -58,6 +58,11 @@ def run_backtest(
             "(e.g. a value_clamp on the provider descriptor) rather than backtesting it"
         )
 
+    # Daily-position model: the (conditional, masked) return stream is summed and
+    # costs scale with realized turnover (entries/exits/in-market days, 003
+    # turnover-cost-contract.md). This resolves the pre-003 gross/cost mismatch by
+    # making costs match the daily-position gross — the same mismatch the earlier
+    # buy-and-hold change fixed from the other side; turnover costs supersede it.
     gross = float(returns.sum())
     n_legs = 2 if direction in ("spread", "relative_value") else len(instruments)
     costs = cost_model.compute(
@@ -69,9 +74,12 @@ def run_backtest(
     net = gross - costs.total
 
     daily = returns.to_numpy(dtype=float)
-    std = daily.std(ddof=0)
+    # Sample std (ddof=1): a backtest window is a sample of possible outcomes, not
+    # the whole population. Kept in lockstep with screening.methods.block_bootstrap_test,
+    # which uses the same convention — the two must never diverge.
+    std = daily.std(ddof=1) if daily.size > 1 else 0.0
     sharpe = float(daily.mean() / std * np.sqrt(TRADING_DAYS_PER_YEAR)) if std > 0 else 0.0
-    cumulative = np.cumsum(daily)
+    cumulative = np.cumsum(daily)  # additive equity curve, consistent with summed gross
     drawdown = float((np.maximum.accumulate(cumulative) - cumulative).max()) if n_days else 0.0
 
     return BacktestComputation(
@@ -87,6 +95,7 @@ def run_backtest(
             "n_days": n_days,
             "date_range": list(data.date_range),
             "any_synthetic_input": data.any_synthetic,
+            "calendar_dropped_dates": data.misaligned_dropped,
             **activity.as_dict(),
         },
     )

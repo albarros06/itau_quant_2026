@@ -22,7 +22,11 @@ log = get_logger("orchestration.ingest")
 def ingest_all(config: PipelineConfig, repo: Repository | None = None) -> dict:
     """Fetch, clean, quality-check, and persist all configured providers' data."""
     owns_repo = repo is None
-    repo = repo or Repository(config.datastore.db_path, config.datastore.lake_dir)
+    repo = repo or Repository(
+        config.datastore.db_path,
+        config.datastore.lake_dir,
+        config.data_quality.max_cross_series_gap_days,
+    )
     summary = {"series": 0, "context_docs": 0, "quality_issues": 0}
     instruments_by_category: dict[str, list[str]] = {}
     for inst in config.instrument_universe:

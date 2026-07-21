@@ -48,6 +48,9 @@ class SplitScopedData:
     date_range: tuple[str, str]
     prices: pd.DataFrame  # index: date, columns: instrument_key
     provenance: dict[str, str]  # instrument_key -> 'real' | 'synthetic'
+    # Rows dropped inside the cross-instrument overlap window because a required
+    # instrument was missing that date (surfaced so the attrition is never silent).
+    misaligned_dropped: int = 0
 
     @property
     def any_synthetic(self) -> bool:
@@ -59,9 +62,17 @@ class StaleDataError(RuntimeError):
 
 
 class Repository:
-    def __init__(self, db_path: str | Path, lake_dir: str | Path):
+    def __init__(
+        self,
+        db_path: str | Path,
+        lake_dir: str | Path,
+        max_cross_series_gap_days: int | None = None,
+    ):
         self.db_path = Path(db_path)
         self.lake_dir = Path(lake_dir)
+        # None => surface-only (drop + warn, never refuse). Orchestration passes the
+        # configured tolerance so every split read shares one refuse threshold.
+        self._max_cross_series_gap_days = max_cross_series_gap_days
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.lake_dir.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.db_path), timeout=30)
@@ -328,12 +339,62 @@ class Repository:
             columns[key] = sliced
             provenance[key] = row["provenance"]
         prices = pd.DataFrame(columns).sort_index()
+        prices, n_dropped = self._align_panel(prices, split_type)
         return SplitScopedData(
             split_type=split_type,
             date_range=(alloc["date_range_start"], alloc["date_range_end"]),
             prices=prices,
             provenance=provenance,
+            misaligned_dropped=n_dropped,
         )
+
+    def _align_panel(self, prices: pd.DataFrame, split_type: str) -> tuple[pd.DataFrame, int]:
+        """Align a multi-instrument price panel on the dates the instruments share.
+
+        Restricts to the cross-instrument overlap window (outside it a leg simply
+        has no history, not a gap), then drops rows where any required instrument is
+        missing that date. The count of such interior holes is returned so it can be
+        surfaced; if it exceeds the configured tolerance the read refuses loudly
+        rather than backtesting on a thinned, gap-stitched panel (Finding #6).
+        """
+        if prices.empty or prices.shape[1] == 0:
+            return prices, 0
+        first_valids = [prices[c].first_valid_index() for c in prices.columns]
+        last_valids = [prices[c].last_valid_index() for c in prices.columns]
+        if any(v is None for v in first_valids) or any(v is None for v in last_valids):
+            return prices.iloc[0:0], 0  # a required instrument has no data in-window
+        common_start, common_end = max(first_valids), min(last_valids)
+        if common_start > common_end:
+            return prices.iloc[0:0], 0  # instruments' histories do not overlap
+
+        within = prices.loc[common_start:common_end]
+        hole_mask = within.isna().any(axis=1)
+        n_holes = int(hole_mask.sum())
+        if n_holes == 0:
+            return within, 0
+
+        holes_by_instrument = {c: int(within[c].isna().sum()) for c in within.columns}
+        holes_by_instrument = {c: n for c, n in holes_by_instrument.items() if n > 0}
+        example_dates = [d.date().isoformat() for d in within.index[hole_mask][:5]]
+        limit = self._max_cross_series_gap_days
+        if limit is not None and n_holes > limit:
+            raise ValueError(
+                f"{split_type}-split panel has {n_holes} misaligned dates in the "
+                f"cross-instrument overlap window (tolerance {limit}) — required "
+                f"instruments are missing prints: {holes_by_instrument}; examples "
+                f"{example_dates}. Fix the underlying series' calendars rather than "
+                "backtesting on a gap-stitched panel (data_quality.max_cross_series_gap_days)"
+            )
+        log.warning(
+            "cross-instrument calendar misalignment %s",
+            kv(
+                split_type=split_type,
+                dropped_dates=n_holes,
+                by_instrument=holes_by_instrument,
+                examples=example_dates,
+            ),
+        )
+        return within[~hole_mask], n_holes
 
     def read_discovery_data(self, cycle_id: str, instrument_keys: list[str]) -> SplitScopedData:
         """The ONLY data access path available to screening (FR-014)."""

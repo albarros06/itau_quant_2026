@@ -66,6 +66,7 @@ data_quality:
   freshness_tolerance_days: 7
   max_gap_days: 7
   outlier_zscore_threshold: 8.0
+  max_cross_series_gap_days: 3
 
 splits:
   discovery_fraction: 0.5
