@@ -45,6 +45,19 @@ endpoints:
     aggregate: "daily_mean" | None # optional: collapse sub-daily observations to one per calendar
                                    # day (the mean, stamped midnight UTC) — e.g. ONS's semi-hourly
                                    # CMO -> the standard daily-average figure. Market data only.
+    value_clamp: [float|null, float|null] | null
+                                   # optional [floor, ceiling] applied to every mapped value — for
+                                   # proxy construction where the target series is a regulatory
+                                   # clamp of the source (PLD = CMO bounded by ANEEL's yearly
+                                   # band). Part of the declared descriptor, never silent.
+    instrument_key_map: {str: str} | null
+                                   # optional provider-native value -> canonical instrument_key,
+                                   # for responses interleaving several instruments (ONS files
+                                   # carry all four submarkets). fetch_series keeps only the
+                                   # requested instrument's rows; unmapped values are dropped,
+                                   # never guessed. Unpaginated payloads are memoized per path for
+                                   # the connector's lifetime, so one shared file is fetched once
+                                   # per run, not once per instrument.
 pagination:
   mode: "none" | "offset" | "cursor"
   # mode="offset": limit_param, offset_param
@@ -62,7 +75,10 @@ pagination:
    a stray Bearer header). Omission is an explicit authoring decision, not a fallback: a
    credential that IS configured but fails to resolve still raises.
 2. **Fetch**: for `fetch_series(category, instrument_key, since)` /
-   `fetch_context(category, since)`, the connector renders `path_template` with the supplied
+   `fetch_context(category, since)`, the connector iterates over EVERY endpoint declared for the
+   requested category, concatenating their results in timestamp order — a vendor that shards one
+   series across several resources (e.g. ONS's one-CSV-per-year S3 files) declares one endpoint
+   per shard under the same category. Per endpoint, it renders `path_template` with the supplied
    parameters, issues the request via `httpx`, locates the elements array within the raw response
    (a bare array, the `data` key, or — if the endpoint sets `results_path` — whatever that
    JMESPath expression finds), and evaluates each `field_mapping` entry with

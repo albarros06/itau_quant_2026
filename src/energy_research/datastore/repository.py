@@ -10,6 +10,7 @@ or cross-split data, so no caller can widen its own scope.
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 import uuid
 from dataclasses import dataclass
@@ -519,6 +520,19 @@ class Repository:
                 raise ValueError(
                     f"backtest result missing {name}: gross-only results are invalid and "
                     "must not be persisted (Constitution Principle IV, FR-017)"
+                )
+        for name, value in (
+            ("gross_return", gross_return),
+            ("transaction_costs", transaction_costs),
+            ("slippage", slippage),
+            ("financing_carry", financing_carry),
+            ("net_return", net_return),
+        ):
+            if not math.isfinite(value):
+                raise ValueError(
+                    f"backtest result has non-finite {name}={value!r}: inf/NaN performance "
+                    "is not a result and must not be persisted (Principle VII backstop; "
+                    "the engine should have refused upstream)"
                 )
         result_id = _new_id("bt")
         with self._conn:

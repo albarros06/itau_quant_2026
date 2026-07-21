@@ -45,6 +45,16 @@ def run_backtest(
     n_days = len(returns)
     if n_days == 0:
         raise ValueError(f"no {data.split_type}-split observations for instruments {instruments}")
+    if not np.isfinite(returns.to_numpy(dtype=float)).all():
+        # A zero/NaN price turns percent-change into inf/NaN and would poison
+        # every downstream figure. Refuse loudly, naming the inputs, instead of
+        # letting a non-finite "result" masquerade as performance (Principle VII;
+        # observed live with unclamped near-zero CMO prices).
+        raise ValueError(
+            f"{data.split_type}-split returns for instruments {instruments} contain "
+            "non-finite values — an input series has zero/NaN prices; fix the series "
+            "(e.g. a value_clamp on the provider descriptor) rather than backtesting it"
+        )
 
     gross = float(returns.sum())
     n_legs = 2 if direction in ("spread", "relative_value") else 1

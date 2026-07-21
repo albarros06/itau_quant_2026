@@ -143,18 +143,46 @@ class AnthropicStructuredBackend:
 
 
 class GeminiStructuredBackend:
-    """Google Gemini API adapter constrained to a JSON schema. One payload per call."""
+    """Google Gemini adapter constrained to a JSON schema. One payload per call.
 
-    def __init__(self, model: str, api_key_env: str = "GEMINI_API_KEY"):
+    Two credential modes (Principle VI — selected by config, secrets never in it):
+
+    - Developer API (default): API key read from ``api_key_env``.
+    - Vertex AI (``vertexai=True``): Google Cloud project billing. Auth comes from
+      Application Default Credentials (``gcloud auth application-default login``
+      or ``GOOGLE_APPLICATION_CREDENTIALS``); the SDK resolves them itself. The
+      project ID comes from config or the ``GOOGLE_CLOUD_PROJECT`` env var.
+    """
+
+    def __init__(
+        self,
+        model: str,
+        api_key_env: str = "GEMINI_API_KEY",
+        vertexai: bool = False,
+        gcp_project: str | None = None,
+        gcp_location: str = "global",
+    ):
         from google import genai  # deferred so offline (stub) runs never require the package
 
-        api_key = os.environ.get(api_key_env)
-        if not api_key:
-            raise RuntimeError(
-                f"generation.backend=gemini but env var {api_key_env} is not set; "
-                "credentials are referenced by env-var name only (never in config)"
-            )
-        self._client = genai.Client(api_key=api_key)
+        if vertexai:
+            project = gcp_project or os.environ.get("GOOGLE_CLOUD_PROJECT")
+            if not project:
+                raise RuntimeError(
+                    "generation.vertexai=true but no Google Cloud project is configured: "
+                    "set generation.gcp_project in config or export GOOGLE_CLOUD_PROJECT. "
+                    "Credentials must be Application Default Credentials "
+                    "(`gcloud auth application-default login` or "
+                    "GOOGLE_APPLICATION_CREDENTIALS) — never placed in config."
+                )
+            self._client = genai.Client(vertexai=True, project=project, location=gcp_location)
+        else:
+            api_key = os.environ.get(api_key_env)
+            if not api_key:
+                raise RuntimeError(
+                    f"generation.backend=gemini but env var {api_key_env} is not set; "
+                    "credentials are referenced by env-var name only (never in config)"
+                )
+            self._client = genai.Client(api_key=api_key)
         self._model = model
 
     def complete(self, request: StructuredRequest) -> list[Any]:
@@ -289,11 +317,24 @@ class DeterministicStubBackend:
         return {"weaknesses": weaknesses, "suggested_direction": suggestion}
 
 
-def build_backend(backend: str, model: str, api_key_env: str) -> StructuredBackend:
+def build_backend(
+    backend: str,
+    model: str,
+    api_key_env: str,
+    vertexai: bool = False,
+    gcp_project: str | None = None,
+    gcp_location: str = "global",
+) -> StructuredBackend:
     if backend == "deterministic_stub":
         return DeterministicStubBackend()
     if backend == "anthropic":
         return AnthropicStructuredBackend(model=model, api_key_env=api_key_env)
     if backend == "gemini":
-        return GeminiStructuredBackend(model=model, api_key_env=api_key_env)
+        return GeminiStructuredBackend(
+            model=model,
+            api_key_env=api_key_env,
+            vertexai=vertexai,
+            gcp_project=gcp_project,
+            gcp_location=gcp_location,
+        )
     raise ValueError(f"unknown LLM backend {backend!r}")

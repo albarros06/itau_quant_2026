@@ -85,3 +85,51 @@ class TestEngine:
             make_data(), {"instruments": ["X"], "direction": "long"}, CostModel(make_config())
         )
         assert result.other_metrics["any_synthetic_input"] is True
+
+
+class TestNonFiniteGuard:
+    def test_zero_price_in_series_is_refused_loudly(self):
+        """A zero price turns pct_change into inf; the engine must refuse with a
+        named error, never emit inf/NaN performance (Principle VII — observed
+        live with unclamped near-zero CMO prices)."""
+        data = make_data()
+        prices = data.prices.copy()
+        prices.iloc[10, prices.columns.get_loc("X")] = 0.0
+        poisoned = SplitScopedData(
+            split_type=data.split_type,
+            date_range=data.date_range,
+            prices=prices,
+            provenance=data.provenance,
+        )
+        with pytest.raises(ValueError, match="non-finite"):
+            run_backtest(
+                poisoned, {"instruments": ["X"], "direction": "long"}, CostModel(make_config())
+            )
+
+    def test_repository_refuses_to_persist_non_finite_results(self, tmp_path):
+        from energy_research.datastore.repository import Repository
+
+        repo = Repository(tmp_path / "db.sqlite", tmp_path / "lake")
+        try:
+            with pytest.raises(ValueError, match="non-finite"):
+                repo.insert_backtest_result(
+                    thesis_id="th_x",
+                    split_type="refinement",
+                    gross_return=float("inf"),
+                    transaction_costs=0.001,
+                    slippage=0.001,
+                    financing_carry=0.001,
+                    net_return=float("inf"),
+                )
+            with pytest.raises(ValueError, match="non-finite"):
+                repo.insert_backtest_result(
+                    thesis_id="th_x",
+                    split_type="refinement",
+                    gross_return=0.1,
+                    transaction_costs=0.001,
+                    slippage=float("nan"),
+                    financing_carry=0.001,
+                    net_return=0.1,
+                )
+        finally:
+            repo.close()

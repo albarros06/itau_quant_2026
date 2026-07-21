@@ -28,6 +28,12 @@ class LlmConfig(StrictModel):
     # compatible (default preserves nothing since this field is required-with-
     # default, same treatment 001 gives its own backend selector).
     backend: Literal["deterministic_stub", "anthropic", "gemini"] = "deterministic_stub"
+    # Mirrors GenerationConfig's Vertex AI fields (additive, defaults preserve the
+    # Developer-API behavior): Google Cloud billing via Application Default
+    # Credentials; the project ID is an identifier, not a secret.
+    vertexai: bool = False
+    gcp_project: str | None = None
+    gcp_location: str = "global"
 
 
 class OperatingSchedule(StrictModel):

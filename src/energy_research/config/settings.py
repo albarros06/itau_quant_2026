@@ -15,7 +15,7 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-DataCategory = Literal["spot", "forward_curve", "hydrology", "interest_rate", "fx"]
+DataCategory = Literal["spot", "forward_curve", "hydrology", "inflow", "interest_rate", "fx"]
 ContextCategory = Literal["news", "hydrology_outlook", "macro_regime"]
 SplitType = Literal["discovery", "refinement", "final_evaluation"]
 
@@ -115,6 +115,14 @@ class GenerationConfig(StrictModel):
     model: str = "claude-opus-4-8"
     api_key_env: str = "ANTHROPIC_API_KEY"
     max_theses_per_cycle: int = Field(default=5, ge=1)
+    # Gemini via Vertex AI (Google Cloud credits) instead of the Developer API.
+    # Auth comes from Application Default Credentials (gcloud auth
+    # application-default login, or GOOGLE_APPLICATION_CREDENTIALS) — never from
+    # config. gcp_project may be null when GOOGLE_CLOUD_PROJECT is exported; the
+    # project ID is an identifier, not a secret, so it may live here (VI).
+    vertexai: bool = False
+    gcp_project: str | None = None
+    gcp_location: str = "global"
 
 
 class ReproducibilityConfig(StrictModel):

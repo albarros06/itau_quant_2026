@@ -39,6 +39,9 @@ class GenerationService:
             config.generation.backend,
             config.generation.model,
             config.generation.api_key_env,
+            vertexai=config.generation.vertexai,
+            gcp_project=config.generation.gcp_project,
+            gcp_location=config.generation.gcp_location,
         )
         self._client = ThesisLLMClient(backend)
 
