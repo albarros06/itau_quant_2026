@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from energy_research.common.calendar import br_business_days
 from energy_research.common.logging import get_logger, kv
 from energy_research.common.records import CleanedSeries, ContextDoc, QualityIssue
 from energy_research.datastore import lake
@@ -318,7 +319,11 @@ class Repository:
     # ------------------------------------------------- split-scoped data reads
 
     def _read_split(
-        self, cycle_id: str, split_type: str, instrument_keys: list[str]
+        self,
+        cycle_id: str,
+        split_type: str,
+        instrument_keys: list[str],
+        instrument_calendars: dict[str, str] | None = None,
     ) -> SplitScopedData:
         alloc = self.get_allocation(cycle_id, split_type)
         start = pd.Timestamp(alloc["date_range_start"])
@@ -339,7 +344,7 @@ class Repository:
             columns[key] = sliced
             provenance[key] = row["provenance"]
         prices = pd.DataFrame(columns).sort_index()
-        prices, n_dropped = self._align_panel(prices, split_type)
+        prices, n_dropped = self._align_panel(prices, split_type, instrument_calendars)
         return SplitScopedData(
             split_type=split_type,
             date_range=(alloc["date_range_start"], alloc["date_range_end"]),
@@ -348,14 +353,24 @@ class Repository:
             misaligned_dropped=n_dropped,
         )
 
-    def _align_panel(self, prices: pd.DataFrame, split_type: str) -> tuple[pd.DataFrame, int]:
+    def _align_panel(
+        self,
+        prices: pd.DataFrame,
+        split_type: str,
+        instrument_calendars: dict[str, str] | None = None,
+    ) -> tuple[pd.DataFrame, int]:
         """Align a multi-instrument price panel on the dates the instruments share.
 
         Restricts to the cross-instrument overlap window (outside it a leg simply
-        has no history, not a gap), then drops rows where any required instrument is
-        missing that date. The count of such interior holes is returned so it can be
-        surfaced; if it exceeds the configured tolerance the read refuses loudly
-        rather than backtesting on a thinned, gap-stitched panel (Finding #6).
+        has no history, not a gap). If the panel includes any business-day-only
+        instrument (BACEN FX/rate — no weekend/holiday prints), the join calendar
+        inside that window is further restricted to Brazilian business days, so
+        structural weekend/holiday absences are excluded from the join entirely
+        rather than counted as misalignment (a pure calendar-day-only panel, e.g.
+        ONS-only, is unaffected and keeps every calendar day). Remaining interior
+        holes are dropped and the count returned; if it exceeds the configured
+        tolerance the read refuses loudly rather than backtesting on a thinned,
+        gap-stitched panel (Finding #6).
         """
         if prices.empty or prices.shape[1] == 0:
             return prices, 0
@@ -368,6 +383,10 @@ class Repository:
             return prices.iloc[0:0], 0  # instruments' histories do not overlap
 
         within = prices.loc[common_start:common_end]
+        if instrument_calendars and any(
+            instrument_calendars.get(c) == "business_day" for c in within.columns
+        ):
+            within = within.reindex(br_business_days(common_start, common_end))
         hole_mask = within.isna().any(axis=1)
         n_holes = int(hole_mask.sum())
         if n_holes == 0:
@@ -396,18 +415,33 @@ class Repository:
         )
         return within[~hole_mask], n_holes
 
-    def read_discovery_data(self, cycle_id: str, instrument_keys: list[str]) -> SplitScopedData:
+    def read_discovery_data(
+        self,
+        cycle_id: str,
+        instrument_keys: list[str],
+        instrument_calendars: dict[str, str] | None = None,
+    ) -> SplitScopedData:
         """The ONLY data access path available to screening (FR-014)."""
-        return self._read_split(cycle_id, "discovery", instrument_keys)
+        return self._read_split(cycle_id, "discovery", instrument_keys, instrument_calendars)
 
-    def read_refinement_data(self, cycle_id: str, instrument_keys: list[str]) -> SplitScopedData:
-        return self._read_split(cycle_id, "refinement", instrument_keys)
+    def read_refinement_data(
+        self,
+        cycle_id: str,
+        instrument_keys: list[str],
+        instrument_calendars: dict[str, str] | None = None,
+    ) -> SplitScopedData:
+        return self._read_split(cycle_id, "refinement", instrument_keys, instrument_calendars)
 
     def read_final_evaluation_data(
-        self, cycle_id: str, instrument_keys: list[str]
+        self,
+        cycle_id: str,
+        instrument_keys: list[str],
+        instrument_calendars: dict[str, str] | None = None,
     ) -> SplitScopedData:
         """Callers must hold a GRANTED ledger spend before invoking this (FR-019)."""
-        return self._read_split(cycle_id, "final_evaluation", instrument_keys)
+        return self._read_split(
+            cycle_id, "final_evaluation", instrument_keys, instrument_calendars
+        )
 
     # -------------------------------------------------------- lineages / theses
 

@@ -48,7 +48,9 @@ class ScreeningService:
         if not theses:
             return ScreeningOutcome([], [])
 
-        data = self._repo.read_discovery_data(cycle_id, self._config.universe_keys)
+        data = self._repo.read_discovery_data(
+            cycle_id, self._config.universe_keys, self._config.instrument_calendars
+        )
         rng = seed_mod.get_rng()
         min_active = self._config.conditional_screening.min_active_days.discovery
 

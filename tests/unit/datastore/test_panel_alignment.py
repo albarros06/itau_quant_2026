@@ -76,3 +76,74 @@ class TestPanelAlignment:
             repo.close()
         assert n_dropped == 0
         pd.testing.assert_frame_equal(aligned, clean)
+
+
+def _weekend_panel() -> pd.DataFrame:
+    """Ten days starting Monday 2025-01-06 (includes Sat 01-11/Sun 01-12). A prints
+    every calendar day (ONS-style); B only prints on weekdays (BACEN-style) plus one
+    genuine interior weekday hole (2025-01-08) that isn't calendar-driven."""
+    dates = pd.date_range("2025-01-06", periods=10, freq="D")
+    a = pd.Series(np.arange(10, dtype=float) + 100.0, index=dates)
+    b = pd.Series(np.arange(10, dtype=float) + 200.0, index=dates)
+    b.iloc[5] = np.nan  # Saturday 2025-01-11
+    b.iloc[6] = np.nan  # Sunday 2025-01-12
+    b.iloc[2] = np.nan  # genuine interior hole, Wednesday 2025-01-08
+    return pd.DataFrame({"A": a, "B": b})
+
+
+class TestBusinessDayReindex:
+    def test_weekend_absence_excluded_not_counted_as_hole(self, tmp_path):
+        repo = _repo(tmp_path, limit=5)
+        try:
+            aligned, n_dropped = repo._align_panel(
+                _weekend_panel(),
+                "discovery",
+                instrument_calendars={"A": "calendar_day", "B": "business_day"},
+            )
+        finally:
+            repo.close()
+        # Only the genuine weekday hole counts; the weekend absence is excluded
+        # from the join calendar entirely, not counted as misalignment.
+        assert n_dropped == 1
+        assert pd.Timestamp("2025-01-11") not in aligned.index
+        assert pd.Timestamp("2025-01-12") not in aligned.index
+        assert pd.Timestamp("2025-01-08") not in aligned.index  # dropped hole
+        assert not aligned.isna().any().any()
+
+    def test_genuine_business_day_hole_still_trips_tolerance(self, tmp_path):
+        repo = _repo(tmp_path, limit=0)
+        try:
+            with pytest.raises(ValueError, match="misaligned"):
+                repo._align_panel(
+                    _weekend_panel(),
+                    "discovery",
+                    instrument_calendars={"A": "calendar_day", "B": "business_day"},
+                )
+        finally:
+            repo.close()
+
+    def test_all_calendar_day_panel_keeps_weekends(self, tmp_path):
+        """Regression guard: a panel with no business-day instrument must be
+        completely untouched by reindexing, even across a weekend."""
+        dates = pd.date_range("2025-01-06", periods=10, freq="D")
+        clean = pd.DataFrame(
+            {"A": np.arange(10.0) + 100.0, "B": np.arange(10.0) + 200.0}, index=dates
+        )
+        repo = _repo(tmp_path, limit=0)
+        try:
+            aligned_typed, n_dropped_typed = repo._align_panel(
+                clean.copy(),
+                "discovery",
+                instrument_calendars={"A": "calendar_day", "B": "calendar_day"},
+            )
+            aligned_none, n_dropped_none = repo._align_panel(
+                clean.copy(), "discovery", instrument_calendars=None
+            )
+        finally:
+            repo.close()
+        pairs = ((aligned_typed, n_dropped_typed), (aligned_none, n_dropped_none))
+        for aligned, n_dropped in pairs:
+            assert n_dropped == 0
+            assert pd.Timestamp("2025-01-11") in aligned.index
+            assert pd.Timestamp("2025-01-12") in aligned.index
+            pd.testing.assert_frame_equal(aligned, clean)

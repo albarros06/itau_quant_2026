@@ -49,7 +49,7 @@ class GenerationService:
 
     def _discovery_context(self, cycle_id: str) -> tuple[str, str, dict]:
         keys = self._config.universe_keys
-        data = self._repo.read_discovery_data(cycle_id, keys)
+        data = self._repo.read_discovery_data(cycle_id, keys, self._config.instrument_calendars)
         rets = data.prices.pct_change().dropna(how="all")
         instruments = []
         lines = []

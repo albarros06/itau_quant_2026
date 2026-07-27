@@ -101,7 +101,7 @@ def run_cycle(config: PipelineConfig, seed: int | None = None) -> CycleResult:
 
 
 def _instrument_trends(repo: Repository, cycle_id: str, config: PipelineConfig) -> dict[str, float]:
-    data = repo.read_discovery_data(cycle_id, config.universe_keys)
+    data = repo.read_discovery_data(cycle_id, config.universe_keys, config.instrument_calendars)
     rets = data.prices.pct_change()
     return {key: float(rets[key].dropna().mean()) for key in config.universe_keys}
 

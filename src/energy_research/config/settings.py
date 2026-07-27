@@ -27,6 +27,11 @@ class StrictModel(BaseModel):
 class InstrumentConfig(StrictModel):
     key: str
     category: DataCategory
+    # "business_day" instruments (e.g. BACEN FX/rate) only print on Brazilian
+    # business days; cross-instrument panel alignment reindexes onto the business-
+    # day calendar whenever a panel includes one, rather than treating weekends/
+    # holidays as misalignment holes (Repository._align_panel).
+    calendar: Literal["calendar_day", "business_day"] = "calendar_day"
     description: str = ""
 
 
@@ -172,6 +177,10 @@ class PipelineConfig(StrictModel):
     @property
     def universe_keys(self) -> list[str]:
         return [i.key for i in self.instrument_universe]
+
+    @property
+    def instrument_calendars(self) -> dict[str, str]:
+        return {i.key: i.calendar for i in self.instrument_universe}
 
     def snapshot(self) -> dict[str, Any]:
         """JSON-serializable snapshot persisted on the ResearchCycle (FR-029)."""

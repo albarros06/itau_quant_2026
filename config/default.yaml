@@ -55,18 +55,27 @@ instrument_universe:
     description: North inflow energy (ENA bruta) as % of long-term mean (ONS, real)
   - key: BR_DI_1Y
     category: interest_rate
+    calendar: business_day
     description: >-
       Short-rate point. Currently BACEN SGS série 432 (Meta Selic, real), a labeled
       PROXY for the 1y DI vertex (no free stable-URL source for the B3 DI curve).
   - key: BRL_USD_FX
     category: fx
+    calendar: business_day
     description: BRL/USD exchange rate (BACEN SGS série 1, PTAX venda, real)
 
 data_quality:
   freshness_tolerance_days: 7
   max_gap_days: 7
   outlier_zscore_threshold: 8.0
-  max_cross_series_gap_days: 3
+  # This universe mixes CALENDAR-day series (ONS power, daily) with BUSINESS-day
+  # series (BACEN FX/rate — no weekends/holidays, marked `calendar: business_day`
+  # on their instrument_universe entries above). Repository._align_panel reindexes
+  # any panel containing a business-day instrument onto the Brazilian business-day
+  # calendar (weekends + national holidays excluded from the join), so this
+  # tolerance now only needs to absorb genuine data gaps plus the rare de-facto
+  # bank closure (e.g. Carnival) that isn't a statutory holiday.
+  max_cross_series_gap_days: 5
 
 splits:
   discovery_fraction: 0.5

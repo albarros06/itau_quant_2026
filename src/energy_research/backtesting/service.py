@@ -60,7 +60,9 @@ class BacktestingService:
                 f"thesis {thesis_id} has no recorded screening pass verdict — it must "
                 "not be backtested (FR-013, SC-003)"
             )
-        data = self._repo.read_refinement_data(thesis["cycle_id"], self._config.universe_keys)
+        data = self._repo.read_refinement_data(
+            thesis["cycle_id"], self._config.universe_keys, self._config.instrument_calendars
+        )
         gate = self._activity_gate(data, thesis["hypothesis"], "refinement")
         if gate is not None:
             self._repo.update_thesis_status(thesis_id, "rejected_underperform", gate)
@@ -119,7 +121,9 @@ class BacktestingService:
         # The final-evaluation read is ledger-gated (FR-019), so the activity gate
         # necessarily runs after the spend; an under-observed final thesis is
         # recorded rejected_after_final with no BacktestResult (turnover-cost rule 5).
-        data = self._repo.read_final_evaluation_data(thesis["cycle_id"], self._config.universe_keys)
+        data = self._repo.read_final_evaluation_data(
+            thesis["cycle_id"], self._config.universe_keys, self._config.instrument_calendars
+        )
         gate = self._activity_gate(data, thesis["hypothesis"], "final_evaluation")
         if gate is not None:
             self._repo.update_thesis_status(thesis_id, "rejected_after_final", gate)
