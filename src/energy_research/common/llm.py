@@ -22,12 +22,69 @@ from __future__ import annotations
 import copy
 import json
 import os
+import random
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeVar
 
 from energy_research.common.logging import get_logger
 
 log = get_logger("common.llm")
+
+# Transient/quota error handling for real LLM backends. A 429 rate-limit is a
+# temporary condition, not a bad thesis — without backoff it would otherwise turn
+# every rate-limited call into a permanent invalid_schema rejection and silently
+# gut a cycle's refinement loop (observed live on a Vertex AI run).
+_RETRY_MAX_ATTEMPTS = 6
+_RETRY_BASE_DELAY_S = 4.0
+_RETRY_MAX_DELAY_S = 60.0
+_RETRYABLE_MARKERS = (
+    "429",
+    "resource_exhausted",
+    "rate limit",
+    "ratelimit",
+    "too many requests",
+    "quota",
+    "unavailable",
+    "503",
+    "overloaded",
+    "529",
+)
+
+_T = TypeVar("_T")
+
+
+def _is_retryable(exc: Exception) -> bool:
+    """True for transient rate-limit / quota / overloaded errors worth retrying."""
+    code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    if code in (429, 503, 529):
+        return True
+    text = str(exc).lower()
+    return any(marker in text for marker in _RETRYABLE_MARKERS)
+
+
+def _call_with_backoff(fn: Callable[[], _T], *, task: str) -> _T:
+    """Call ``fn``, retrying transient rate-limit/quota errors with exponential
+    backoff + jitter. Non-retryable errors (and exhaustion of retries) propagate."""
+    for attempt in range(_RETRY_MAX_ATTEMPTS):
+        try:
+            return fn()
+        except Exception as exc:
+            if not _is_retryable(exc) or attempt == _RETRY_MAX_ATTEMPTS - 1:
+                raise
+            delay = min(_RETRY_MAX_DELAY_S, _RETRY_BASE_DELAY_S * (2**attempt))
+            delay += random.uniform(0.0, delay * 0.25)  # jitter to de-sync bursts
+            log.warning(
+                "%s LLM call hit a transient/quota error (attempt %d/%d): %s — retrying in %.1fs",
+                task,
+                attempt + 1,
+                _RETRY_MAX_ATTEMPTS,
+                str(exc)[:140],
+                delay,
+            )
+            time.sleep(delay)
+    raise AssertionError("unreachable")  # pragma: no cover
 
 
 @dataclass
@@ -115,20 +172,21 @@ class AnthropicStructuredBackend:
         payloads: list[Any] = []
         schema = _strip_unsupported(request.json_schema)
         for i in range(request.n):
-            response = self._client.messages.create(
-                model=self._model,
-                max_tokens=16000,
-                system=request.system,
-                output_config={"format": {"type": "json_schema", "schema": schema}},
-                messages=[
-                    {
-                        "role": "user",
-                        "content": request.prompt
-                        if request.n == 1
-                        else f"{request.prompt}\n\nThis is proposal {i + 1} of {request.n}; "
-                        "it must differ materially from any earlier proposal.",
-                    }
-                ],
+            content = (
+                request.prompt
+                if request.n == 1
+                else f"{request.prompt}\n\nThis is proposal {i + 1} of {request.n}; "
+                "it must differ materially from any earlier proposal."
+            )
+            response = _call_with_backoff(
+                lambda c=content: self._client.messages.create(
+                    model=self._model,
+                    max_tokens=16000,
+                    system=request.system,
+                    output_config={"format": {"type": "json_schema", "schema": schema}},
+                    messages=[{"role": "user", "content": c}],
+                ),
+                task=request.task,
             )
             if response.stop_reason == "refusal":
                 log.warning("LLM refused a %s request; recording as invalid attempt", request.task)
@@ -196,17 +254,22 @@ class GeminiStructuredBackend:
                 "it must differ materially from any earlier proposal."
             )
             try:
-                response = self._client.models.generate_content(
-                    model=self._model,
-                    contents=prompt,
-                    config={
-                        "system_instruction": request.system,
-                        "response_mime_type": "application/json",
-                        "response_json_schema": schema,
-                    },
+                response = _call_with_backoff(
+                    lambda p=prompt: self._client.models.generate_content(
+                        model=self._model,
+                        contents=p,
+                        config={
+                            "system_instruction": request.system,
+                            "response_mime_type": "application/json",
+                            "response_json_schema": schema,
+                        },
+                    ),
+                    task=request.task,
                 )
             except Exception as exc:
-                log.warning("Gemini call failed for a %s request: %s", request.task, exc)
+                log.warning(
+                    "Gemini call failed for a %s request after retries: %s", request.task, exc
+                )
                 payloads.append({"__unparseable__": str(exc)[:200]})
                 continue
             text = response.text or ""
