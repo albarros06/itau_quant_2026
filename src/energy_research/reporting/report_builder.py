@@ -32,20 +32,28 @@ def _activity(other_metrics: dict | None) -> dict | None:
 
 
 def _clause_summary(clause: dict) -> str:
-    inst = clause["instrument_key"]
-    transform = clause["subject_transform"]
-    subject = inst if transform == "level" else f"{transform}({inst}, {clause['subject_lookback']})"
-    kind = clause["reference_kind"]
+    """Render one condition clause. Uses ``.get`` throughout (never direct
+    indexing) because this also renders invalid_schema drafts (per this module's
+    docstring) — a draft is invalid precisely because the LLM omitted a required
+    field, so any clause field may genuinely be absent here."""
+    inst = clause.get("instrument_key", "?")
+    transform = clause.get("subject_transform", "?")
+    subject = (
+        inst
+        if transform == "level"
+        else f"{transform}({inst}, {clause.get('subject_lookback', '?')})"
+    )
+    kind = clause.get("reference_kind", "?")
     if kind == "constant":
-        reference = f"{clause['reference_value']}"
+        reference = f"{clause.get('reference_value', '?')}"
     elif kind == "sma":
-        reference = f"sma({inst}, {clause['reference_lookback']})"
-    else:  # rolling_quantile
+        reference = f"sma({inst}, {clause.get('reference_lookback', '?')})"
+    else:  # rolling_quantile (or an unrecognized kind on a malformed draft)
         reference = (
-            f"rolling_quantile({inst}, {clause['reference_lookback']}, "
-            f"q={clause['reference_quantile']})"
+            f"rolling_quantile({inst}, {clause.get('reference_lookback', '?')}, "
+            f"q={clause.get('reference_quantile', '?')})"
         )
-    return f"{subject} {clause['comparator']} {reference}"
+    return f"{subject} {clause.get('comparator', '?')} {reference}"
 
 
 def _condition_summary(hypothesis: dict) -> str | None:

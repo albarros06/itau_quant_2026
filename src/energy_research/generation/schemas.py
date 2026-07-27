@@ -68,6 +68,12 @@ def validate_draft(
             f"instruments {unknown} are not in the configured instrument universe "
             f"{universe_keys} — thesis is out of the configured universe"
         )
+    if len(set(draft.hypothesis.instruments)) != len(draft.hypothesis.instruments):
+        raise DraftRejection(
+            f"instruments {draft.hypothesis.instruments} contains duplicates — each leg "
+            "must reference a distinct instrument (common.signals.hypothesis_returns "
+            "cannot compute a basket over a repeated column)"
+        )
     directions_needing_pair = ("spread", "relative_value")
     if draft.hypothesis.direction in directions_needing_pair and (
         len(draft.hypothesis.instruments) != 2

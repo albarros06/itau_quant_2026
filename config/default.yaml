@@ -74,8 +74,14 @@ data_quality:
   # any panel containing a business-day instrument onto the Brazilian business-day
   # calendar (weekends + national holidays excluded from the join), so this
   # tolerance now only needs to absorb genuine data gaps plus the rare de-facto
-  # bank closure (e.g. Carnival) that isn't a statutory holiday.
-  max_cross_series_gap_days: 5
+  # bank closure (e.g. Carnival, Corpus Christi) that isn't a statutory holiday.
+  # Confirmed against the 2020-01 -> 2023-04 discovery window: 10 holes from
+  # Carnival/Corpus Christi (BRL_USD_FX only, benign) + 14 holes from a genuine
+  # upstream ONS reporting gap (BR_POWER_* missing across all 4 submarkets on
+  # ordinary weekdays, e.g. 2022-12-05..07 and six Mon/Tue in Jan 2023 —
+  # verified absent in ONS's own published CMO_SEMIHORARIO CSVs, not an
+  # ingestion bug). 25 gives minimal headroom over that confirmed count.
+  max_cross_series_gap_days: 25
 
 splits:
   discovery_fraction: 0.5

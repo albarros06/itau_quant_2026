@@ -66,6 +66,16 @@ def test_rejects_out_of_universe_instrument():
         validate_draft(payload, UNIVERSE)
 
 
+def test_rejects_duplicate_instruments():
+    """A repeated instrument breaks common.signals.hypothesis_returns (selecting a
+    duplicate-named column returns a DataFrame, not a Series) — must be rejected
+    at the schema boundary, not crash downstream in screening/backtesting."""
+    payload = valid_payload()
+    payload["hypothesis"]["instruments"] = ["BR_POWER_SE_FWD_M1", "BR_POWER_SE_FWD_M1"]
+    with pytest.raises(DraftRejection, match="contains duplicates"):
+        validate_draft(payload, UNIVERSE)
+
+
 def test_rejects_spread_with_single_instrument():
     payload = valid_payload()
     payload["hypothesis"]["direction"] = "spread"
