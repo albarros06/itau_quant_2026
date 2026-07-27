@@ -31,31 +31,40 @@ instrument_universe:
     description: North daily spot power price (ONS CMO daily mean, PLD-proxy, real)
   - key: BR_HYDRO_SE_RESERVOIR
     category: hydrology
+    tradeable: false
     description: SE/CO aggregate reservoir level, % of max stored energy (ONS EAR, real)
   - key: BR_HYDRO_S_RESERVOIR
     category: hydrology
+    tradeable: false
     description: South aggregate reservoir level, % of max stored energy (ONS EAR, real)
   - key: BR_HYDRO_NE_RESERVOIR
     category: hydrology
+    tradeable: false
     description: Northeast aggregate reservoir level, % of max stored energy (ONS EAR, real)
   - key: BR_HYDRO_N_RESERVOIR
     category: hydrology
+    tradeable: false
     description: North aggregate reservoir level, % of max stored energy (ONS EAR, real)
   - key: BR_ENA_SE_MLT
     category: inflow
+    tradeable: false
     description: SE/CO inflow energy (ENA bruta) as % of long-term mean (ONS, real)
   - key: BR_ENA_S_MLT
     category: inflow
+    tradeable: false
     description: South inflow energy (ENA bruta) as % of long-term mean (ONS, real)
   - key: BR_ENA_NE_MLT
     category: inflow
+    tradeable: false
     description: Northeast inflow energy (ENA bruta) as % of long-term mean (ONS, real)
   - key: BR_ENA_N_MLT
     category: inflow
+    tradeable: false
     description: North inflow energy (ENA bruta) as % of long-term mean (ONS, real)
   - key: BR_DI_1Y
     category: interest_rate
     calendar: business_day
+    tradeable: false
     description: >-
       Short-rate point. Currently BACEN SGS série 432 (Meta Selic, real), a labeled
       PROXY for the 1y DI vertex (no free stable-URL source for the B3 DI curve).

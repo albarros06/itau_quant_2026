@@ -46,6 +46,7 @@ class DraftRejection(Exception):
 def validate_draft(
     payload: object,
     universe_keys: list[str],
+    tradeable_keys: list[str],
     *,
     max_clauses: int = 3,
     max_lookback_days: int = 90,
@@ -55,7 +56,10 @@ def validate_draft(
     Raises :class:`DraftRejection` with a specific reason on any failure; never
     repairs or partially accepts (FR-011). ``max_clauses``/``max_lookback_days``
     bound the conditional-signal vocabulary (003 contracts rules 3–4); defaults
-    match ``ConditionalScreeningConfig``.
+    match ``ConditionalScreeningConfig``. ``tradeable_keys`` is the subset of
+    ``universe_keys`` that carries a price/position/short side — a signal-only
+    statistic (hydrology, inflow, policy-rate proxy) may gate a thesis via
+    ``condition`` but can never be a traded leg in ``instruments``.
     """
     try:
         draft = TradingThesisDraft.model_validate(payload)
@@ -67,6 +71,13 @@ def validate_draft(
         raise DraftRejection(
             f"instruments {unknown} are not in the configured instrument universe "
             f"{universe_keys} — thesis is out of the configured universe"
+        )
+    non_tradeable = [i for i in draft.hypothesis.instruments if i not in tradeable_keys]
+    if non_tradeable:
+        raise DraftRejection(
+            f"instruments {non_tradeable} are signal-only statistics, not tradeable "
+            "instruments — they may gate a thesis via `condition` but cannot be a "
+            "traded leg in `instruments`"
         )
     if len(set(draft.hypothesis.instruments)) != len(draft.hypothesis.instruments):
         raise DraftRejection(
