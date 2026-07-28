@@ -91,6 +91,7 @@ class GenerationService:
             draft = validate_draft(
                 payload,
                 self._config.universe_keys,
+                self._config.tradeable_keys,
                 max_clauses=self._config.conditional_screening.max_clauses,
                 max_lookback_days=self._config.conditional_screening.max_lookback_days,
             )

@@ -32,6 +32,11 @@ class InstrumentConfig(StrictModel):
     # day calendar whenever a panel includes one, rather than treating weekends/
     # holidays as misalignment holes (Repository._align_panel).
     calendar: Literal["calendar_day", "business_day"] = "calendar_day"
+    # False for statistics with no price/position/short side (hydrology,
+    # inflow, policy-rate proxies) — legitimate only as condition.clauses
+    # gates, never as a traded leg in hypothesis.instruments
+    # (generation.schemas.validate_draft enforces this).
+    tradeable: bool = True
     description: str = ""
 
 
@@ -181,6 +186,10 @@ class PipelineConfig(StrictModel):
     @property
     def instrument_calendars(self) -> dict[str, str]:
         return {i.key: i.calendar for i in self.instrument_universe}
+
+    @property
+    def tradeable_keys(self) -> list[str]:
+        return [i.key for i in self.instrument_universe if i.tradeable]
 
     def snapshot(self) -> dict[str, Any]:
         """JSON-serializable snapshot persisted on the ResearchCycle (FR-029)."""

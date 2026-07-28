@@ -31,31 +31,40 @@ instrument_universe:
     description: North daily spot power price (ONS CMO daily mean, PLD-proxy, real)
   - key: BR_HYDRO_SE_RESERVOIR
     category: hydrology
+    tradeable: false
     description: SE/CO aggregate reservoir level, % of max stored energy (ONS EAR, real)
   - key: BR_HYDRO_S_RESERVOIR
     category: hydrology
+    tradeable: false
     description: South aggregate reservoir level, % of max stored energy (ONS EAR, real)
   - key: BR_HYDRO_NE_RESERVOIR
     category: hydrology
+    tradeable: false
     description: Northeast aggregate reservoir level, % of max stored energy (ONS EAR, real)
   - key: BR_HYDRO_N_RESERVOIR
     category: hydrology
+    tradeable: false
     description: North aggregate reservoir level, % of max stored energy (ONS EAR, real)
   - key: BR_ENA_SE_MLT
     category: inflow
+    tradeable: false
     description: SE/CO inflow energy (ENA bruta) as % of long-term mean (ONS, real)
   - key: BR_ENA_S_MLT
     category: inflow
+    tradeable: false
     description: South inflow energy (ENA bruta) as % of long-term mean (ONS, real)
   - key: BR_ENA_NE_MLT
     category: inflow
+    tradeable: false
     description: Northeast inflow energy (ENA bruta) as % of long-term mean (ONS, real)
   - key: BR_ENA_N_MLT
     category: inflow
+    tradeable: false
     description: North inflow energy (ENA bruta) as % of long-term mean (ONS, real)
   - key: BR_DI_1Y
     category: interest_rate
     calendar: business_day
+    tradeable: false
     description: >-
       Short-rate point. Currently BACEN SGS série 432 (Meta Selic, real), a labeled
       PROXY for the 1y DI vertex (no free stable-URL source for the B3 DI curve).
@@ -74,8 +83,14 @@ data_quality:
   # any panel containing a business-day instrument onto the Brazilian business-day
   # calendar (weekends + national holidays excluded from the join), so this
   # tolerance now only needs to absorb genuine data gaps plus the rare de-facto
-  # bank closure (e.g. Carnival) that isn't a statutory holiday.
-  max_cross_series_gap_days: 5
+  # bank closure (e.g. Carnival, Corpus Christi) that isn't a statutory holiday.
+  # Confirmed against the 2020-01 -> 2023-04 discovery window: 10 holes from
+  # Carnival/Corpus Christi (BRL_USD_FX only, benign) + 14 holes from a genuine
+  # upstream ONS reporting gap (BR_POWER_* missing across all 4 submarkets on
+  # ordinary weekdays, e.g. 2022-12-05..07 and six Mon/Tue in Jan 2023 —
+  # verified absent in ONS's own published CMO_SEMIHORARIO CSVs, not an
+  # ingestion bug). 25 gives minimal headroom over that confirmed count.
+  max_cross_series_gap_days: 25
 
 splits:
   discovery_fraction: 0.5
