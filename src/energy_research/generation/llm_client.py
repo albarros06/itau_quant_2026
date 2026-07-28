@@ -36,7 +36,12 @@ _SYSTEM = (
     "reference (reference_kind: 'constant' uses reference_value; 'sma' uses "
     "reference_lookback; 'rolling_quantile' uses reference_lookback and "
     "reference_quantile in [0,1]). All lookbacks are in trading days and must not "
-    "exceed 90. Express conditions ONLY in this vocabulary — never as free text; "
+    "exceed 90. When reference_kind is 'constant', reference_value MUST be on the "
+    "subject instrument's NATIVE level scale as shown per instrument in the market "
+    "summary (each line gives that series' level min/p10/median/p90/max) — do NOT "
+    "assume a normalized 0..1 or 0..100 scale; a threshold outside the observed "
+    "range means the condition never triggers and the thesis is discarded untested. "
+    "Express conditions ONLY in this vocabulary — never as free text; "
     "put prose reasoning in the rationale and testable_claim instead."
 )
 

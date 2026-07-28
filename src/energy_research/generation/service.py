@@ -57,10 +57,37 @@ class GenerationService:
             series = rets[key].dropna()
             trend = float(series.mean()) if len(series) else 0.0
             vol = float(series.std(ddof=0)) if len(series) else 0.0
-            instruments.append({"key": key, "trend": trend, "vol": vol})
+            # Level-scale stats: condition clauses compare an instrument's LEVEL
+            # against a `constant` reference_value, so the LLM needs each series'
+            # native range to pick sensible thresholds (e.g. reservoir % ~ 16..87,
+            # not a normalized 0..1) — without this, conditions never trigger.
+            levels = data.prices[key].dropna()
+            if len(levels):
+                lo, p10, med, p90, hi = (
+                    float(levels.min()),
+                    float(levels.quantile(0.10)),
+                    float(levels.median()),
+                    float(levels.quantile(0.90)),
+                    float(levels.max()),
+                )
+            else:
+                lo = p10 = med = p90 = hi = 0.0
+            instruments.append(
+                {
+                    "key": key,
+                    "trend": trend,
+                    "vol": vol,
+                    "level_min": lo,
+                    "level_p10": p10,
+                    "level_median": med,
+                    "level_p90": p90,
+                    "level_max": hi,
+                }
+            )
             label = " [SYNTHETIC]" if data.provenance.get(key) == "synthetic" else ""
             lines.append(
-                f"- {key}{label}: mean daily return {trend:+.5f}, "
+                f"- {key}{label}: level min {lo:.4g} / p10 {p10:.4g} / median {med:.4g} "
+                f"/ p90 {p90:.4g} / max {hi:.4g}; mean daily return {trend:+.5f}, "
                 f"volatility {vol:.5f}, {len(series)} observations"
             )
         docs = self._repo.context_documents()
