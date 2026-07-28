@@ -20,6 +20,14 @@ _SYSTEM = (
     "capital allocation. Every thesis must include a plain-language rationale "
     "grounded in the provided market and qualitative context, and a specific, "
     "falsifiable hypothesis restricted to the provided instrument universe.\n\n"
+    "The instrument universe is split into TRADEABLE instruments — they have a "
+    "price, a position, and a short side — and SIGNAL-ONLY statistics (e.g. "
+    "reservoir levels, inflow as a percent of long-term mean, policy-rate proxies) "
+    "which have no price, no position, and no short side. Only tradeable "
+    "instruments may appear in hypothesis.instruments as traded legs. A signal-only "
+    "statistic may be referenced ONLY inside a condition clause, to gate WHEN a "
+    "thesis is active — never as a traded leg. A hypothesis whose instruments list "
+    "contains a signal-only statistic will be rejected.\n\n"
     "A hypothesis may carry an optional structured 'condition' (or null for "
     "always-in-market) that gates when the position is held. A condition is 1..3 "
     "clauses combined with AND. Each clause compares one universe instrument's "
@@ -43,12 +51,23 @@ class ThesisLLMClient:
         market_summary: str,
         qualitative_summary: str,
         universe_keys: list[str],
+        tradeable_keys: list[str],
         n: int,
         context: dict,
     ) -> list[Any]:
-        """Request up to ``n`` raw thesis payloads (unvalidated)."""
+        """Request up to ``n`` raw thesis payloads (unvalidated).
+
+        ``tradeable_keys`` is the subset of ``universe_keys`` that may appear as a
+        traded leg in ``hypothesis.instruments``; the remaining (signal-only) keys
+        may only gate a thesis via ``condition`` clauses.
+        """
+        signal_only = [k for k in universe_keys if k not in tradeable_keys]
         prompt = (
-            f"Instrument universe (only these keys are valid): {universe_keys}\n\n"
+            f"Instrument universe (only these keys are valid): {universe_keys}\n"
+            f"  - Tradeable (valid as traded legs in hypothesis.instruments): "
+            f"{tradeable_keys}\n"
+            f"  - Signal-only statistics (valid ONLY inside condition clauses as "
+            f"gates, never as a traded leg): {signal_only}\n\n"
             f"Discovery-window market summary:\n{market_summary}\n\n"
             f"Qualitative context:\n{qualitative_summary}\n\n"
             f"Propose {n} distinct trading theses as JSON conforming to the "

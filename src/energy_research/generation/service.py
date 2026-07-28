@@ -138,6 +138,7 @@ class GenerationService:
             market_summary=market,
             qualitative_summary=qualitative,
             universe_keys=self._config.universe_keys,
+            tradeable_keys=self._config.tradeable_keys,
             n=n,
             context=context,
         )
@@ -187,6 +188,7 @@ class GenerationService:
             market_summary=market,
             qualitative_summary=qualitative,
             universe_keys=self._config.universe_keys,
+            tradeable_keys=self._config.tradeable_keys,
             n=1,
             context=context,
         )
